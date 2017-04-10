@@ -96,6 +96,17 @@ public class ars140330Agent extends Agent {
 			positionKnown[agentId] = true;
 		}
 		//anything after this point will know the dimensions of the board and the position of each agent
+
+		//check if the agent has just been tagged
+		//see if its in its starting corner and to the left/right of its base
+		boolean justTagged = false;
+		if (!inEnvironment.isBaseWest(inEnvironment.OUR_TEAM,false) && !inEnvironment.isBaseEast(inEnvironment.OUR_TEAM,false)){
+			if( (startingCorner == 0 && inEnvironment.isObstacleNorthImmediate() && inEnvironment.isObstacleWestImmediate()) 
+				|| (startingCorner == 1 && inEnvironment.isObstacleNorthImmediate() && inEnvironment.isObstacleEastImmediate())
+					|| (startingCorner == 2 && inEnvironment.isObstacleSouthImmediate() && inEnvironment.isObstacleWestImmediate())
+						|| (startingCorner == 3 && inEnvironment.isObstacleSouthImmediate() && inEnvironment.isObstacleEastImmediate()))
+				justTagged = true;
+		}
 		if( !inEnvironment.hasFlag() ) {
 			// make goal the enemy flag
 			goalNorth = inEnvironment.isFlagNorth( 
