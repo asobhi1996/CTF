@@ -51,10 +51,7 @@ public class ars140330Agent extends Agent {
 			public boolean equals(Object obj) {
 				if (obj == null)
 					return false;
-				if (!Position.class.isAssignableFrom(obj.getClass()))
-					return false;
-
-				final Position pos = (Position) obj;
+				Position pos = (Position) obj;
 				if (this.row != pos.row || this.column != pos.column)
 					return false;
 				return true;
@@ -62,64 +59,116 @@ public class ars140330Agent extends Agent {
 
 			@Override
 		    public int hashCode() {
-		    	//Cantor's Pairing Function, maps two numbers to unique number
+		    	//Cantor's Pairing Function, maps two ordered numbers to unique number
 		        return (int)(.5 *(row + column) *(row + column + 1)) + column;
 		    }
 		}
-	public int move(String direction,AgentEnvironment inEnvironment){
-		Position candidatePosition = new Position();
-		int action = AgentAction.DO_NOTHING;
-		if (direction.equals("NORTH")){
-			candidatePosition.set(position.row+1,position.column);
-			action = AgentAction.MOVE_NORTH;
-		}
-		else if (direction.equals("WEST")){
-			candidatePosition.set(position.row,position.column-1);
-			action = AgentAction.MOVE_WEST;
-		}
-		else if (direction.equals("EAST")){
-			candidatePosition.set(position.row,position.column+1);
-			action = AgentAction.MOVE_EAST;
-		}
-		else if (direction.equals("SOUTH")){
-			candidatePosition.set(position.row+1,position.column);
-			action = AgentAction.MOVE_SOUTH;
-		}
-		else {
-			System.out.println("Error in direction");
-		}
-		for (Position pos: positionTabu){
-			if(pos == candidatePosition)
-				return makeRandomPossibleMove(direction,inEnvironment);
-		}
-		position = candidatePosition;
-		return action;
+	public void positionChanger(Position position,int direction) {
+		if (agentId == 1)
+			System.out.printf("Current position (2) (%d,%d)\n",position.row,position.column);
+		if (direction == AgentAction.MOVE_NORTH)
+			position.set(position.row+1,position.column);
+		else if (direction == AgentAction.MOVE_SOUTH) 
+			position.set(position.row-1,position.column);
+		else if (direction == AgentAction.MOVE_EAST)
+			position.set(position.row,position.column+1);
+		else 
+			position.set(position.row,position.column-1);
+		if (agentId == 1)
+			System.out.printf("Position after proposed change (3) (%d,%d)\n",position.row,position.column);
 	}
-	public int makeRandomPossibleMove(String direction, AgentEnvironment inEnvironment) {
+	public int move(int direction,AgentEnvironment inEnvironment){
+		if (!positionKnown[agentId])
+			return direction;
+		System.out.printf("Attempting to move to %d at Position (%d,%d)",direction,position.row,position.column);
+		Position candidatePosition = new Position(position);
 		boolean obstNorth = inEnvironment.isObstacleNorthImmediate();
 		boolean obstSouth = inEnvironment.isObstacleSouthImmediate();
 		boolean obstEast = inEnvironment.isObstacleEastImmediate();
 		boolean obstWest = inEnvironment.isObstacleWestImmediate();
-		double north,south,east,west = 0;
-		if( !obstNorth && !direction.equals("NORTH")) {
-				if (Math.random() >= .33)
-					return AgentAction.MOVE_NORTH;
-		}
-		if( !obstSouth  && !direction.equals("SOUTH")) {
-			if(Math.random() >= .33)
-		}
-		if( !obstEast && !direction.equals("EAST")) {
-				east = Math.random();
-				}
-		if( !obstWest && !direction.equals("WEST") ) {
-				west = Math.random();
-				}
-		if (north == 0 && south == 0 && west == 0 && east == 0) {
-			//remove last element from tabu list
-			return AgentAction.DO_NOTHING;
-		}
+		int action = AgentAction.DO_NOTHING;
+		if (agentId == 1)
+			System.out.printf("Current position (1) (%d,%d)\n",position.row,position.column);
 
-	}	
+
+		if (direction == AgentAction.MOVE_NORTH && !obstNorth){
+			action = AgentAction.MOVE_NORTH;
+			positionChanger(candidatePosition,action);
+		}
+		else if (direction == AgentAction.MOVE_WEST&& !obstWest){
+			action = AgentAction.MOVE_WEST;
+			positionChanger(candidatePosition,action);
+		}
+		else if (direction == AgentAction.MOVE_EAST && !obstEast){
+			action = AgentAction.MOVE_EAST;
+			positionChanger(candidatePosition,action);
+		}
+		else if (direction == AgentAction.MOVE_SOUTH && !obstSouth){
+			action = AgentAction.MOVE_SOUTH;
+			positionChanger(candidatePosition,action);
+		}
+		action =tryMove(candidatePosition,action);
+		if (agentId == 1){
+			System.out.printf("Action is to move %d to (%d,%d)",action,candidatePosition.row,candidatePosition.column);
+		}
+		if (action == -1){
+			while (action != -1){
+				int roll = makeRandomPossibleMove();
+				if (validMove(roll,inEnvironment)) {
+					candidatePosition.set(position.row,position.column);
+					positionChanger(candidatePosition,roll);
+					action = tryMove(candidatePosition,roll);
+				}
+			}
+		}
+		if (positionTabu.size() != 0 && positionTabu.size() <=3)
+			positionTabu.remove(0);
+		if (action != AgentAction.DO_NOTHING)
+			positionTabu.add(position);
+		return action;
+	}
+
+	public int tryMove(Position candidate, int action){
+		if (checkTabu(candidate)){
+			position = candidate;
+			return action;
+		}
+		return -1;
+	}
+	public boolean checkTabu(Position candidate) {
+		for (Position position: positionTabu){
+			if(position == candidate) {
+				return false;
+			}
+		}
+		return true;
+	}
+
+	public int makeRandomPossibleMove()	{
+		double roll = Math.random();
+		if (roll < .2)
+			return AgentAction.MOVE_NORTH;
+		else if (roll >= .2 && roll < .4)
+			return AgentAction.MOVE_SOUTH;
+		else if (roll >=.4 && roll < .6)
+			return AgentAction.MOVE_WEST;
+		else if (roll >= .6 && roll < .8)
+			return AgentAction.MOVE_EAST;
+		else
+			return AgentAction.DO_NOTHING;
+	}
+
+	public boolean validMove(int direction,AgentEnvironment inEnvironment){
+		boolean obstNorth = inEnvironment.isObstacleNorthImmediate();
+		boolean obstSouth = inEnvironment.isObstacleSouthImmediate();
+		boolean obstEast = inEnvironment.isObstacleEastImmediate();
+		boolean obstWest = inEnvironment.isObstacleWestImmediate();
+		if( (direction == AgentAction.MOVE_NORTH && !obstNorth) || (direction == AgentAction.MOVE_SOUTH && !obstSouth) 
+			|| (direction == AgentAction.MOVE_EAST && !obstEast) || (direction == AgentAction.MOVE_WEST && !obstWest) || (direction == AgentAction.DO_NOTHING))
+			return true;
+		return false;
+	}
+
 	public void returnToStart() {
 		if (startingCorner == 0){
 			position.row = 0;
@@ -200,18 +249,23 @@ public class ars140330Agent extends Agent {
 				position = new Position(boardSize-1 - beginningSteps, boardSize-1);
 			}
 			positionKnown[agentId] = true;
+			if (agentId == 1)
+				System.out.println("Agent 1 is  at  position (" + position.row + ',' + position.column);
 		}
+			//System.out.println("Agent 1 is  at  position (" + position.row + ',' + position.column);
 		//anything after this point will know the dimensions of the board and the position of each agent
 
 		//check if the agent has just been tagged
 		//see if its in its starting corner and to the left/right of its base
-		if (!inEnvironment.isBaseWest(inEnvironment.OUR_TEAM,false) && !inEnvironment.isBaseEast(inEnvironment.OUR_TEAM,false)){
+		if (!inEnvironment.isBaseWest(inEnvironment.OUR_TEAM,false) && !inEnvironment.isBaseEast(inEnvironment.OUR_TEAM,false) && !inEnvironment.isBaseNorth(inEnvironment.OUR_TEAM,true) && !inEnvironment.isBaseSouth(inEnvironment.OUR_TEAM,true)){
 			if( (startingCorner == 0 && inEnvironment.isObstacleNorthImmediate() && inEnvironment.isObstacleWestImmediate()) 
 				|| (startingCorner == 1 && inEnvironment.isObstacleNorthImmediate() && inEnvironment.isObstacleEastImmediate())
 					|| (startingCorner == 2 && inEnvironment.isObstacleSouthImmediate() && inEnvironment.isObstacleWestImmediate())
-						|| (startingCorner == 3 && inEnvironment.isObstacleSouthImmediate() && inEnvironment.isObstacleEastImmediate()))
+						|| (startingCorner == 3 && inEnvironment.isObstacleSouthImmediate() && inEnvironment.isObstacleEastImmediate())) {
 				justTagged = true;
+				System.out.println("Just tagged");
 				this.returnToStart();
+			}
 		}
 		if( !inEnvironment.hasFlag() ) {
 			// make goal the enemy flag
@@ -255,20 +309,20 @@ public class ars140330Agent extends Agent {
 		// if the goal is north only, and we're not blocked
 		if( goalNorth && ! goalEast && ! goalWest && !obstNorth ) {
 			// move north
-			return move("NORTH",inEnvironment);
+			return move(AgentAction.MOVE_NORTH,inEnvironment);
 			}
 			
 		// if goal both north and east
 		if( goalNorth && goalEast ) {
 			// pick north or east for move with 50/50 chance
 			if( Math.random() < 0.5 && !obstNorth ) {
-				return move("NORTH",inEnvironment);
+				return move(AgentAction.MOVE_NORTH,inEnvironment);
 				}
 			if( !obstEast ) {	
-				return move("EAST",inEnvironment);
+				return move(AgentAction.MOVE_EAST,inEnvironment);
 				}
 			if( !obstNorth ) {	
-				return move("NORTH",inEnvironment);
+				return move(AgentAction.MOVE_NORTH,inEnvironment);
 				}
 			}	
 			
@@ -276,70 +330,70 @@ public class ars140330Agent extends Agent {
 		if( goalNorth && goalWest ) {
 			// pick north or west for move with 50/50 chance
 			if( Math.random() < 0.5 && !obstNorth ) {
-				return move("NORTH",inEnvironment);
+				return move(AgentAction.MOVE_NORTH,inEnvironment);
 				}
 			if( !obstWest ) {	
-				return move("WEST",inEnvironment);
+				return move(AgentAction.MOVE_WEST,inEnvironment);
 				}
 			if( !obstNorth ) {	
-				return move("NORTH",inEnvironment);
+				return move(AgentAction.MOVE_NORTH,inEnvironment);
 				}	
 			}
 		
 		// if the goal is south only, and we're not blocked
 		if( goalSouth && ! goalEast && ! goalWest && !obstSouth ) {
 			// move south
-			return move("SOUTH",inEnvironment);
+			return move(AgentAction.MOVE_SOUTH,inEnvironment);
 			}
 		
 		// do same for southeast and southwest as for north versions	
 		if( goalSouth && goalEast ) {
 			if( Math.random() < 0.5 && !obstSouth ) {
-				return move("SOUTH",inEnvironment);
+				return move(AgentAction.MOVE_SOUTH,inEnvironment);
 				}
 			if( !obstEast ) {
-				return move("EAST",inEnvironment);
+				return move(AgentAction.MOVE_EAST,inEnvironment);
 				}
 			if( !obstSouth ) {
-				return move("SOUTH",inEnvironment);
+				return move(AgentAction.MOVE_SOUTH,inEnvironment);
 				}
 			}
 				
 		if( goalSouth && goalWest && !obstSouth ) {
 			if( Math.random() < 0.5 ) {
-				return move("SOUTH",inEnvironment);
+				return move(AgentAction.MOVE_SOUTH,inEnvironment);
 				}
 			if( !obstWest ) {
-				return move("WEST",inEnvironment);
+				return move(AgentAction.MOVE_WEST,inEnvironment);
 				}
 			if( !obstSouth ) {
-				return move("SOUTH",inEnvironment);
+				return move(AgentAction.MOVE_SOUTH,inEnvironment);
 				}
 			}
 		
 		// if the goal is east only, and we're not blocked
 		if( goalEast && !obstEast ) {
-			return move("EAST",inEnvironment);
+			return move(AgentAction.MOVE_EAST,inEnvironment);
 			}
 		
 		// if the goal is west only, and we're not blocked	
 		if( goalWest && !obstWest ) {
-			return move("WEST",inEnvironment);
+			return move(AgentAction.MOVE_WEST,inEnvironment);
 			}	
 		
 		// otherwise, make any unblocked move
 
 		if( !obstNorth ) {
-			return move("NORTH",inEnvironment);
+			return move(AgentAction.MOVE_NORTH,inEnvironment);
 			}
 		else if( !obstSouth ) {
-			return move("SOUTH",inEnvironment);
+			return move(AgentAction.MOVE_SOUTH,inEnvironment);
 			}
 		else if( !obstEast ) {
-			return move("EAST",inEnvironment);
+			return move(AgentAction.MOVE_EAST,inEnvironment);
 			}
 		else if( !obstWest ) {
-			return move("WEST",inEnvironment);
+			return move(AgentAction.MOVE_WEST,inEnvironment);
 			}	
 		else {
 			// completely blocked!	
