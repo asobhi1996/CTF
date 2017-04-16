@@ -1,6 +1,6 @@
 package ctf.agent;
 
-import java.util.ArrayList;
+import java.util.*;
 import ctf.common.AgentEnvironment;
 import ctf.agent.Agent;
 import ctf.common.AgentAction;
@@ -8,14 +8,26 @@ import ctf.common.AgentAction;
 public class ars140330Agent extends Agent {
 	public static int boardSize = 1;
 	public static int id = 0;
+	public static String ourSide;
 	public static boolean[] boardSizeKnown = {false,false};
 	public static boolean[] positionKnown = {false,false};
+	public static Position[] positionArray = {null,null};
+	public static Position enemyFlagPosition;
+	public static Position ourFlagPosition;
+	public static Set<Position> badPositions = new HashSet<Position>();
+	public static Set<Position> discoveredPositions = new HashSet<Position>();
+	public static boolean[][] noObstacle;
 	public ArrayList<Position> positionTabu;
+	public Stack<Integer> homePath;
 	public int agentId;
-	public int beginningSteps = 0; //used to calculate boardSize
+	public int beginningSteps; //used to calculate boardSize
 	public int startingCorner; //0 indicates NorthWest, 1 NorthEast, 2 SouthWest, 3 Southeast
 	public Position position; //holds the x,y coordinates of the agent
-	public boolean cornerKnown = false; //flag for if agent knows its starting corner
+	public boolean cornerKnown;; //flag for if agent knows its starting corner
+	public boolean goingHome;
+	public boolean initailizedObstacleArray = false;
+	public static final int TABU_SIZE_LIMIT = 1;
+	public static final Integer[] moveList = {AgentAction.MOVE_NORTH,AgentAction.MOVE_SOUTH,AgentAction.MOVE_EAST,AgentAction.MOVE_WEST};
 
 	//Constructor
 	public ars140330Agent(){
@@ -23,139 +35,203 @@ public class ars140330Agent extends Agent {
 		if (id == 2)
 			id = 0;
 		boardSizeKnown[this.agentId] = false;
+		positionKnown[this.agentId] = false;
+		positionArray[agentId] = null;
 		positionTabu = new ArrayList<Position>();
+		homePath = new Stack<Integer>();
+		homePath.push(AgentAction.DO_NOTHING);
+		goingHome = false;
+		cornerKnown = false;
+		beginningSteps = 0;
+		startingCorner = -1;
+		ourSide = null;
 
 	}
 
 	//private class Position to hold row,column coordinates
-	private class Position {
-			public int row, column;
-			Position(){
-				this.row = -1;
-				this.column = -1;
-			}
-			Position(int row, int column) {
-				this.row = row;
-				this.column = column;
-			}
-			Position(Position other) {
-				this.row = other.row;
-				this.column = other.column;
-			}
-			public void set(int row, int column){
-				this.row = row;
-				this.column = column;
-			}
-
-			@Override
-			public boolean equals(Object obj) {
-				if (obj == null)
-					return false;
-				Position pos = (Position) obj;
-				if (this.row != pos.row || this.column != pos.column)
-					return false;
-				return true;
-			}
-
-			@Override
-		    public int hashCode() {
-		    	//Cantor's Pairing Function, maps two ordered numbers to unique number
-		        return (int)(.5 *(row + column) *(row + column + 1)) + column;
-		    }
+	private class Position implements Comparable<Position> {
+		public int row, column,distance,direction;
+		public Position parent;
+		Position(){
+			this.row = -1;
+			this.column = -1;
+			this.distance = 10000;
 		}
+		Position(int row, int column) {
+			this.row = row;
+			this.column = column;
+			this.distance = 10000;
+		}
+		Position(Position other) {
+			this.row = other.row;
+			this.column = other.column;
+			this.distance = 1000;
+		}
+		public void set(int row, int column){
+			this.row = row;
+			this.column = column;
+			this.distance = 1000;
+		}
+
+		@Override
+		public boolean equals(Object obj) {
+			if (obj == null)
+				return false;
+			Position pos = (Position) obj;
+			if (this.row != pos.row || this.column != pos.column)
+				return false;
+			return true;
+		}
+		@Override
+	    public int hashCode() {
+	    	//Cantor's Pairing Function, maps two ordered numbers to unique number
+	        return (int)(.5 *(row + column) *(row + column + 1)) + column;
+	    }
+	    @Override
+	    public int compareTo(Position other){
+	        if (this.distance < other.distance)
+	        	return -1;
+	        else if (this.distance > other.distance)
+	        	return 1;
+	        else
+	        	return 0;
+  			}
+	}
 	public void positionChanger(Position position,int direction) {
-		if (agentId == 1)
-			System.out.printf("Current position (2) (%d,%d)\n",position.row,position.column);
 		if (direction == AgentAction.MOVE_NORTH)
-			position.set(position.row+1,position.column);
-		else if (direction == AgentAction.MOVE_SOUTH) 
 			position.set(position.row-1,position.column);
+		else if (direction == AgentAction.MOVE_SOUTH) 
+			position.set(position.row+1,position.column);
 		else if (direction == AgentAction.MOVE_EAST)
 			position.set(position.row,position.column+1);
-		else 
+		else if (direction == AgentAction.MOVE_WEST)
 			position.set(position.row,position.column-1);
-		if (agentId == 1)
-			System.out.printf("Position after proposed change (3) (%d,%d)\n",position.row,position.column);
 	}
-	public int move(int direction,AgentEnvironment inEnvironment){
-		if (!positionKnown[agentId])
-			return direction;
-		System.out.printf("Attempting to move to %d at Position (%d,%d)",direction,position.row,position.column);
-		Position candidatePosition = new Position(position);
-		boolean obstNorth = inEnvironment.isObstacleNorthImmediate();
-		boolean obstSouth = inEnvironment.isObstacleSouthImmediate();
-		boolean obstEast = inEnvironment.isObstacleEastImmediate();
-		boolean obstWest = inEnvironment.isObstacleWestImmediate();
-		int action = AgentAction.DO_NOTHING;
-		if (agentId == 1)
-			System.out.printf("Current position (1) (%d,%d)\n",position.row,position.column);
 
+	public Position positionMaker(Position position, int direction){
+		Position newPosition;
+		if (direction == AgentAction.MOVE_NORTH)
+			newPosition = new Position(position.row-1,position.column);
+		else if (direction == AgentAction.MOVE_SOUTH) 
+			newPosition =  new Position(position.row+1,position.column);
+		else if (direction == AgentAction.MOVE_EAST)
+			newPosition =  new Position(position.row,position.column+1);
+		else if (direction == AgentAction.MOVE_WEST)
+			newPosition =  new Position(position.row,position.column-1);
+		else 
+			return position;
+		if (newPosition.row < 0 || newPosition.row >= boardSize || newPosition.column < 0 || newPosition.column >= boardSize)
+			return null;
+		return newPosition;
+	}
 
-		if (direction == AgentAction.MOVE_NORTH && !obstNorth){
-			action = AgentAction.MOVE_NORTH;
-			positionChanger(candidatePosition,action);
+	public int move(AgentEnvironment inEnvironment) {
+		Position[] neighbors = new Position[4];
+		Boolean[] valid = {true,true,true,true};
+		Collections.shuffle(Arrays.asList(moveList));
+		int direction;
+		for(int i = 0;i<4;i++){
+			direction = moveList[i];
+			neighbors[direction] = positionMaker(position,direction);
+			if(neighbors[direction] == null || neighbors[direction].row < 0 || neighbors[direction].row >= boardSize || neighbors[direction].column < 0 || neighbors[direction].column >= boardSize)
+				valid[direction] = false;
+			if (!validMove(direction,inEnvironment) || badPositions.contains(neighbors[direction]) 
+				|| !teammateNotInWay(direction,inEnvironment) || !notBabysitting(direction,inEnvironment) || !checkTabu(neighbors[direction]))
+				valid[direction] = false;
 		}
-		else if (direction == AgentAction.MOVE_WEST&& !obstWest){
-			action = AgentAction.MOVE_WEST;
-			positionChanger(candidatePosition,action);
-		}
-		else if (direction == AgentAction.MOVE_EAST && !obstEast){
-			action = AgentAction.MOVE_EAST;
-			positionChanger(candidatePosition,action);
-		}
-		else if (direction == AgentAction.MOVE_SOUTH && !obstSouth){
-			action = AgentAction.MOVE_SOUTH;
-			positionChanger(candidatePosition,action);
-		}
-		action =tryMove(candidatePosition,action);
-		if (agentId == 1){
-			System.out.printf("Action is to move %d to (%d,%d)",action,candidatePosition.row,candidatePosition.column);
-		}
-		if (action == -1){
-			while (action != -1){
-				int roll = makeRandomPossibleMove();
-				if (validMove(roll,inEnvironment)) {
-					candidatePosition.set(position.row,position.column);
-					positionChanger(candidatePosition,roll);
-					action = tryMove(candidatePosition,roll);
-				}
+		int validNeighbors = 0;
+		for(int i = 0;i<4;i++){
+			direction = moveList[i];
+			if(valid[direction]){
+				validNeighbors++;
 			}
 		}
-		if (positionTabu.size() != 0 && positionTabu.size() <=3)
-			positionTabu.remove(0);
-		if (action != AgentAction.DO_NOTHING)
-			positionTabu.add(position);
-		return action;
+		if (validNeighbors == 0) {
+			if (positionTabu.size() > 0)
+				positionTabu.remove(positionTabu.size()-1);
+			return AgentAction.DO_NOTHING;
+		}
+		//make undiscovered move
+		for(int i = 0;i<4;i++){
+			direction = moveList[i];
+			Position neighbor = neighbors[direction];
+			if(valid[direction] && !discoveredPositions.contains(neighbor)) {
+				discoveredPositions.add(neighbor);
+				if (positionTabu.size() > TABU_SIZE_LIMIT)
+					positionTabu.remove(TABU_SIZE_LIMIT);
+				positionTabu.add(0,neighbor);
+				position.set(neighbor.row,neighbor.column);
+				positionArray[agentId] = position;
+				homePath.push(direction);
+				return direction;
+			}
+		}
+		//make random move
+		direction = -1;
+		while (direction == -1) {
+			double roll = Math.random();
+			if (roll < .25 && valid[0]) {
+					direction = AgentAction.MOVE_NORTH;
+				}
+			else if (roll >= .25 && roll < .5 && valid[1]) {
+					direction = AgentAction.MOVE_SOUTH;
+				}
+			else if (roll >=.5 && roll < .75 && valid[3]) {
+					direction = AgentAction.MOVE_WEST;
+				}
+			else
+				if (valid[2]){
+					direction = AgentAction.MOVE_EAST;
+				}
+		}
+
+		if (positionTabu.size() > TABU_SIZE_LIMIT)
+			positionTabu.remove(TABU_SIZE_LIMIT);
+		positionTabu.add(0,neighbors[direction]);
+		position = neighbors[direction];
+		positionArray[agentId] = position;
+		homePath.push(direction);
+		return direction;
+
 	}
 
-	public int tryMove(Position candidate, int action){
-		if (checkTabu(candidate)){
-			position = candidate;
-			return action;
-		}
-		return -1;
-	}
 	public boolean checkTabu(Position candidate) {
 		for (Position position: positionTabu){
-			if(position == candidate) {
+			if(position.equals(candidate)) {
 				return false;
 			}
 		}
 		return true;
 	}
+	public boolean notBabysitting(int direction, AgentEnvironment inEnvironment){
+		if (!inEnvironment.hasFlag() &&
+			(direction == AgentAction.MOVE_NORTH &&
+				inEnvironment.isFlagNorth(AgentEnvironment.OUR_TEAM,true) && 
+				inEnvironment.isBaseNorth(AgentEnvironment.OUR_TEAM,true)) ||
+			(direction == AgentAction.MOVE_SOUTH && 
+				inEnvironment.isFlagSouth(AgentEnvironment.OUR_TEAM,true) && 
+				inEnvironment.isBaseSouth(AgentEnvironment.OUR_TEAM,true)) ||
+			(direction == AgentAction.MOVE_EAST &&
+				inEnvironment.isFlagEast(AgentEnvironment.OUR_TEAM,true) &&
+				inEnvironment.isBaseEast(AgentEnvironment.OUR_TEAM,true)) ||
+			(direction == AgentAction.MOVE_WEST &&
+				inEnvironment.isFlagWest(AgentEnvironment.OUR_TEAM,true) &&
+				inEnvironment.isBaseWest(AgentEnvironment.OUR_TEAM,true)))
+			return false;
+		return true;
 
-	public int makeRandomPossibleMove()	{
-		double roll = Math.random();
-		if (roll < .2)
-			return AgentAction.MOVE_NORTH;
-		else if (roll >= .2 && roll < .4)
-			return AgentAction.MOVE_SOUTH;
-		else if (roll >=.4 && roll < .6)
-			return AgentAction.MOVE_WEST;
-		else if (roll >= .6 && roll < .8)
-			return AgentAction.MOVE_EAST;
-		else
-			return AgentAction.DO_NOTHING;
+	}
+	public boolean notObstructed(int direction,AgentEnvironment inEnvironment,Position candidatePosition){
+		if (!teammateNotInWay(candidatePosition))
+			return false;
+		//check if not obstructeed by obstacle
+		if (!validMove(direction,inEnvironment))
+			return false;
+		//check if we're tryingto move to our base with the flag on it
+		if (!notBabysitting(direction,inEnvironment))
+			return false;
+
+		return true;
 	}
 
 	public boolean validMove(int direction,AgentEnvironment inEnvironment){
@@ -167,6 +243,29 @@ public class ars140330Agent extends Agent {
 			|| (direction == AgentAction.MOVE_EAST && !obstEast) || (direction == AgentAction.MOVE_WEST && !obstWest) || (direction == AgentAction.DO_NOTHING))
 			return true;
 		return false;
+	}
+
+	public boolean teammateNotInWay(int direction,AgentEnvironment inEnvironment) {
+		boolean teammateNorth = inEnvironment.isAgentNorth(AgentEnvironment.OUR_TEAM,true);
+		boolean teammateSouth = inEnvironment.isAgentSouth(AgentEnvironment.OUR_TEAM,true);
+		boolean teammateEast = inEnvironment.isAgentEast(AgentEnvironment.OUR_TEAM,true);
+		boolean teammateWest = inEnvironment.isAgentWest(AgentEnvironment.OUR_TEAM,true);
+		if( (direction == AgentAction.MOVE_NORTH && !teammateNorth) || (direction == AgentAction.MOVE_SOUTH && !teammateSouth) 
+			|| (direction == AgentAction.MOVE_EAST && !teammateEast) || (direction == AgentAction.MOVE_WEST && !teammateWest) || (direction == AgentAction.DO_NOTHING))
+			return true;
+		return false;
+	}
+
+	public boolean teammateNotInWay(Position candidatePosition) {
+		int otherAgent;
+		if (agentId == 1)
+			otherAgent = 0;
+		else 
+			otherAgent = 1;
+		if (positionKnown[otherAgent] && positionArray[otherAgent].equals(candidatePosition)){
+			return false;
+		}
+		return true;
 	}
 
 	public void returnToStart() {
@@ -186,21 +285,120 @@ public class ars140330Agent extends Agent {
 			position.row = boardSize-1;
 			position.column = boardSize-1;
 		}
+		positionArray[agentId] = position;
+		while(!homePath.empty())
+			homePath.pop();
+		homePath.push(AgentAction.DO_NOTHING);
+		goingHome = false;
 	}
 
+	public int getNextMoveFromHomeStack(AgentEnvironment inEnvironment) {
+		int toDirection = -1;
+		int returnDirection = -1;
+		if(!homePath.empty()) {
+			toDirection = (int)homePath.pop();
+			if (toDirection == AgentAction.MOVE_NORTH)
+				returnDirection = AgentAction.MOVE_SOUTH;
+			else if (toDirection == AgentAction.MOVE_SOUTH)
+				returnDirection = AgentAction.MOVE_NORTH;
+			else if (toDirection == AgentAction.MOVE_EAST)
+				returnDirection = AgentAction.MOVE_WEST;
+			else if (toDirection == AgentAction.MOVE_WEST)
+				returnDirection = AgentAction.MOVE_EAST;
+			else
+				;
+			Position candidate = positionMaker(position,returnDirection);
+			if (candidate != null && teammateNotInWay(returnDirection,inEnvironment)){
+				position.set(candidate.row,candidate.column);
+				positionArray[agentId] = candidate;
+				return returnDirection;
+			}
+			else {
+				homePath.push(toDirection);
+				return AgentAction.DO_NOTHING;
+			}
+		}
+		return AgentAction.DO_NOTHING;
+	}
+	public void addMoveToHomePath(int direction){
+		if(direction != AgentAction.DO_NOTHING && direction != AgentAction.PLANT_HYPERDEADLY_PROXIMITY_MINE){
+			if(!homePath.empty()){
+				int lastDirection = (int)homePath.peek();
+				int complementDirection;
+				if (direction == AgentAction.MOVE_NORTH)
+					complementDirection = AgentAction.MOVE_SOUTH;
+				else if (direction == AgentAction.MOVE_SOUTH)
+					complementDirection = AgentAction.MOVE_NORTH;
+				else if (direction == AgentAction.MOVE_EAST)
+					complementDirection = AgentAction.MOVE_WEST;
+				else if (direction == AgentAction.MOVE_WEST)
+					complementDirection = AgentAction.MOVE_EAST;
+				else
+					complementDirection = -2;
+				if (lastDirection != complementDirection){
+					homePath.push(direction);
+				}
+				else{
+					homePath.pop();
+				}
+			}
+		}
 
+	}
+
+	public void addToBadPoistions(AgentEnvironment inEnvironment){
+		int blocked = 0;
+		Position[] neighbors = {positionMaker(position,AgentAction.MOVE_NORTH),positionMaker(position,AgentAction.MOVE_SOUTH),
+			positionMaker(position,AgentAction.MOVE_EAST),positionMaker(position,AgentAction.MOVE_WEST)};
+		for (int i = 0;i<4;i++){
+			if (!validMove(i,inEnvironment))
+				blocked++;
+			if (neighbors[i]!=null && badPositions.contains(neighbors[i]))
+				blocked++;
+		}
+		if (blocked >=3)
+			badPositions.add(position);
+
+
+	}
+
+	public Position pathListFromEndToStart(Position start, Position end) {
+		start.distance = 0;
+		start.parent = null;
+		Set<Position> visited = new HashSet<Position>();
+		PriorityQueue<Position> pq = new PriorityQueue<Position>();
+		pq.add(start);
+		visited.add(start);
+		while (pq.size() > 0) {
+			Position node = pq.poll();
+			if (node.equals(end)){
+				return node;
+			}
+			else{
+				visited.add(node);
+				Position[] neighbors = {positionMaker(position,AgentAction.MOVE_NORTH),positionMaker(position,AgentAction.MOVE_SOUTH),
+				positionMaker(position,AgentAction.MOVE_EAST),positionMaker(position,AgentAction.MOVE_WEST)};
+				for(int dir = 0;dir<4;dir++){
+					Position neighbor = neighbors[dir];
+					if (neighbor != null && noObstacle[neighbor.row][neighbor.column] && !visited.contains(neighbor)){
+						neighbor.distance = node.distance + 1;
+						neighbor.parent = node;
+						neighbor.direction = dir;
+						pq.add(neighbor);
+					}
+
+				}
+			}
+		}
+		return null;
+	}
 	// implements Agent.getMove() interface
-	public int getMove( AgentEnvironment inEnvironment ) {
-		
+	public int getMove(AgentEnvironment inEnvironment) {
 		// booleans describing direction of goal
 		// goal is either enemy flag, or our base
-
-		boolean goalNorth;
-		boolean goalSouth;
-		boolean goalEast;
-		boolean goalWest;
-		boolean justTagged = false;
 		//find what the starting corner is
+		//if(positionKnown[agentId] && (position.row > boardSize-1 || position.column > boardSize-1))
+		//	System.exit(0);
 		if (!cornerKnown) {
 			if (inEnvironment.isObstacleNorthImmediate() && inEnvironment.isObstacleWestImmediate())
 				startingCorner = 0;
@@ -211,6 +409,10 @@ public class ars140330Agent extends Agent {
 			else
 				startingCorner = 3;
 			cornerKnown = true;
+			if (inEnvironment.isFlagWest(inEnvironment.OUR_TEAM,false))
+				ourSide = "right";
+			else
+				ourSide = "left";
 		}
 		//code to find the dimension of the board
 		if (!boardSizeKnown[0] || !boardSizeKnown[1]){
@@ -224,7 +426,7 @@ public class ars140330Agent extends Agent {
 				boardSize += 1;
 				beginningSteps +=1;
 				return AgentAction.MOVE_NORTH;
-				}
+			}
 			else if (inEnvironment.isFlagSouth(inEnvironment.OUR_TEAM,false)){
 				boardSize += 1;
 				beginningSteps += 1;
@@ -232,6 +434,9 @@ public class ars140330Agent extends Agent {
 			}
 		}
 
+		//add positions to valid and bad position sets
+		if(positionKnown[agentId])
+			addToBadPoistions(inEnvironment);
 		//once both agents have reached the flag, calculate their starting indexes
 		if (boardSizeKnown[0] && boardSizeKnown[1] && (!positionKnown[0] || !positionKnown[1])){
 			if (positionKnown[agentId])
@@ -249,12 +454,65 @@ public class ars140330Agent extends Agent {
 				position = new Position(boardSize-1 - beginningSteps, boardSize-1);
 			}
 			positionKnown[agentId] = true;
-			if (agentId == 1)
-				System.out.println("Agent 1 is  at  position (" + position.row + ',' + position.column);
+			positionArray[agentId] = position;
+			if (inEnvironment.isBaseNorth(inEnvironment.OUR_TEAM,true)) {
+				ourFlagPosition = positionMaker(position,AgentAction.MOVE_NORTH);
+			}
+			else
+				ourFlagPosition = positionMaker(position,AgentAction.MOVE_SOUTH);
 		}
-			//System.out.println("Agent 1 is  at  position (" + position.row + ',' + position.column);
+		if (positionKnown[agentId]){
+			if (ourSide.equals("left"))
+				enemyFlagPosition = new Position(ourFlagPosition.row,boardSize-1);
+			else
+				enemyFlagPosition = new Position(ourFlagPosition.row,0);
+		}
+
+
 		//anything after this point will know the dimensions of the board and the position of each agent
 
+		//initailize the obstacle boolean array
+		//noObstacle[x][y] = true if there is no obstacle at position (X,Y), false otherwise
+		if(positionKnown[agentId]){
+			if (!discoveredPositions.contains(position)){
+				discoveredPositions.add(position);
+			}
+		}
+
+		if(!initailizedObstacleArray && boardSizeKnown[0] && boardSizeKnown[1]){
+			noObstacle = new boolean[boardSize][boardSize];
+			if (ourSide.equals("left")){
+				for (int i = 0;i<boardSize;i++)
+					noObstacle[i][0] = true;
+			}
+			else {
+				for (int i = 0;i<boardSize;i++)
+					noObstacle[i][boardSize-1] = true;
+			}
+			initailizedObstacleArray = true;
+			Position temp;
+			for(int dir = 0;dir<4;dir++){
+				if (validMove(dir,inEnvironment)){
+					temp = positionMaker(position,dir);
+					if (temp != null){
+						noObstacle[temp.row][temp.column] = true;
+					}
+				}
+			}
+		}
+
+		if(initailizedObstacleArray && boardSizeKnown[0] && boardSizeKnown[1]){
+			Position temp;
+			for(int dir = 0;dir<4;dir++){
+				if (validMove(dir,inEnvironment)){
+					temp = positionMaker(position,dir);
+					if (temp != null){
+						noObstacle[temp.row][temp.column] = true;
+					}
+				}
+			}
+
+		}
 		//check if the agent has just been tagged
 		//see if its in its starting corner and to the left/right of its base
 		if (!inEnvironment.isBaseWest(inEnvironment.OUR_TEAM,false) && !inEnvironment.isBaseEast(inEnvironment.OUR_TEAM,false) && !inEnvironment.isBaseNorth(inEnvironment.OUR_TEAM,true) && !inEnvironment.isBaseSouth(inEnvironment.OUR_TEAM,true)){
@@ -262,143 +520,63 @@ public class ars140330Agent extends Agent {
 				|| (startingCorner == 1 && inEnvironment.isObstacleNorthImmediate() && inEnvironment.isObstacleEastImmediate())
 					|| (startingCorner == 2 && inEnvironment.isObstacleSouthImmediate() && inEnvironment.isObstacleWestImmediate())
 						|| (startingCorner == 3 && inEnvironment.isObstacleSouthImmediate() && inEnvironment.isObstacleEastImmediate())) {
-				justTagged = true;
-				System.out.println("Just tagged");
 				this.returnToStart();
 			}
 		}
-		if( !inEnvironment.hasFlag() ) {
-			// make goal the enemy flag
-			goalNorth = inEnvironment.isFlagNorth( 
-				inEnvironment.ENEMY_TEAM, false );
-		
-			goalSouth = inEnvironment.isFlagSouth( 
-				inEnvironment.ENEMY_TEAM, false );
-		
-			goalEast = inEnvironment.isFlagEast( 
-				inEnvironment.ENEMY_TEAM, false );
-		
-			goalWest = inEnvironment.isFlagWest( 
-				inEnvironment.ENEMY_TEAM, false );
-			}
-		else {
-			// we have enemy flag.
-			// make goal our base
-			goalNorth = inEnvironment.isBaseNorth( 
-				inEnvironment.OUR_TEAM, false );
-		
-			goalSouth = inEnvironment.isBaseSouth( 
-				inEnvironment.OUR_TEAM, false );
-		
-			goalEast = inEnvironment.isBaseEast( 
-				inEnvironment.OUR_TEAM, false );
-		
-			goalWest = inEnvironment.isBaseWest( 
-				inEnvironment.OUR_TEAM, false );
-			}
-		
-		// now we have direction booleans for our goal	
-		
-		// check for immediate obstacles blocking our path		
-		boolean obstNorth = inEnvironment.isObstacleNorthImmediate();
-		boolean obstSouth = inEnvironment.isObstacleSouthImmediate();
-		boolean obstEast = inEnvironment.isObstacleEastImmediate();
-		boolean obstWest = inEnvironment.isObstacleWestImmediate();
-		
-		
-		// if the goal is north only, and we're not blocked
-		if( goalNorth && ! goalEast && ! goalWest && !obstNorth ) {
-			// move north
-			return move(AgentAction.MOVE_NORTH,inEnvironment);
-			}
-			
-		// if goal both north and east
-		if( goalNorth && goalEast ) {
-			// pick north or east for move with 50/50 chance
-			if( Math.random() < 0.5 && !obstNorth ) {
-				return move(AgentAction.MOVE_NORTH,inEnvironment);
-				}
-			if( !obstEast ) {	
-				return move(AgentAction.MOVE_EAST,inEnvironment);
-				}
-			if( !obstNorth ) {	
-				return move(AgentAction.MOVE_NORTH,inEnvironment);
-				}
-			}	
-			
-		// if goal both north and west	
-		if( goalNorth && goalWest ) {
-			// pick north or west for move with 50/50 chance
-			if( Math.random() < 0.5 && !obstNorth ) {
-				return move(AgentAction.MOVE_NORTH,inEnvironment);
-				}
-			if( !obstWest ) {	
-				return move(AgentAction.MOVE_WEST,inEnvironment);
-				}
-			if( !obstNorth ) {	
-				return move(AgentAction.MOVE_NORTH,inEnvironment);
-				}	
-			}
-		
-		// if the goal is south only, and we're not blocked
-		if( goalSouth && ! goalEast && ! goalWest && !obstSouth ) {
-			// move south
-			return move(AgentAction.MOVE_SOUTH,inEnvironment);
-			}
-		
-		// do same for southeast and southwest as for north versions	
-		if( goalSouth && goalEast ) {
-			if( Math.random() < 0.5 && !obstSouth ) {
-				return move(AgentAction.MOVE_SOUTH,inEnvironment);
-				}
-			if( !obstEast ) {
-				return move(AgentAction.MOVE_EAST,inEnvironment);
-				}
-			if( !obstSouth ) {
-				return move(AgentAction.MOVE_SOUTH,inEnvironment);
-				}
-			}
-				
-		if( goalSouth && goalWest && !obstSouth ) {
-			if( Math.random() < 0.5 ) {
-				return move(AgentAction.MOVE_SOUTH,inEnvironment);
-				}
-			if( !obstWest ) {
-				return move(AgentAction.MOVE_WEST,inEnvironment);
-				}
-			if( !obstSouth ) {
-				return move(AgentAction.MOVE_SOUTH,inEnvironment);
-				}
-			}
-		
-		// if the goal is east only, and we're not blocked
-		if( goalEast && !obstEast ) {
-			return move(AgentAction.MOVE_EAST,inEnvironment);
-			}
-		
-		// if the goal is west only, and we're not blocked	
-		if( goalWest && !obstWest ) {
-			return move(AgentAction.MOVE_WEST,inEnvironment);
-			}	
-		
-		// otherwise, make any unblocked move
-
-		if( !obstNorth ) {
-			return move(AgentAction.MOVE_NORTH,inEnvironment);
-			}
-		else if( !obstSouth ) {
-			return move(AgentAction.MOVE_SOUTH,inEnvironment);
-			}
-		else if( !obstEast ) {
-			return move(AgentAction.MOVE_EAST,inEnvironment);
-			}
-		else if( !obstWest ) {
-			return move(AgentAction.MOVE_WEST,inEnvironment);
-			}	
-		else {
-			// completely blocked!	
-			return AgentAction.DO_NOTHING;
-			}	
+		//see if we can go straight up or down to home
+		if (inEnvironment.hasFlag()) {
+			if (inEnvironment.isBaseNorth(inEnvironment.OUR_TEAM,true)
+			 || (inEnvironment.isBaseNorth(inEnvironment.OUR_TEAM,false) && !inEnvironment.isBaseWest(inEnvironment.OUR_TEAM,false) && !inEnvironment.isBaseEast(inEnvironment.OUR_TEAM,false)))
+				return AgentAction.MOVE_NORTH;
+			else if (inEnvironment.isBaseWest(inEnvironment.OUR_TEAM,true))
+				return AgentAction.MOVE_WEST;
+			else if (inEnvironment.isBaseSouth(inEnvironment.OUR_TEAM,true)
+				|| (inEnvironment.isBaseSouth(inEnvironment.OUR_TEAM,false) && !inEnvironment.isBaseWest(inEnvironment.OUR_TEAM,false) && !inEnvironment.isBaseEast(inEnvironment.OUR_TEAM,false)))
+				return AgentAction.MOVE_SOUTH;
+			else if (inEnvironment.isBaseEast(inEnvironment.OUR_TEAM,true))
+				return AgentAction.MOVE_EAST;
 		}
-
+		//see if the flag is immedietly next to us and go there
+		if (!inEnvironment.hasFlag() && !inEnvironment.hasFlag(inEnvironment.OUR_TEAM) && positionKnown[agentId]){
+			int direction = -2;
+			if (inEnvironment.isFlagNorth(inEnvironment.ENEMY_TEAM,true)
+				|| (inEnvironment.isFlagNorth(inEnvironment.ENEMY_TEAM,false) && position.column == enemyFlagPosition.column))
+				direction = AgentAction.MOVE_NORTH;
+			else if (inEnvironment.isFlagWest(inEnvironment.ENEMY_TEAM,true))
+				direction = AgentAction.MOVE_WEST;
+			else if (inEnvironment.isFlagSouth(inEnvironment.ENEMY_TEAM,true)
+				|| (inEnvironment.isFlagSouth(inEnvironment.ENEMY_TEAM,false) && position.column == enemyFlagPosition.column))
+				direction = AgentAction.MOVE_SOUTH;
+			else if (inEnvironment.isFlagEast(inEnvironment.ENEMY_TEAM,true))
+				direction = AgentAction.MOVE_EAST;
+			if (direction != -2 && teammateNotInWay(direction,inEnvironment)){
+				positionChanger(position,direction);
+				positionArray[agentId] = position;
+				addMoveToHomePath(direction);
+				return direction;
+			}
+		}
+		//we have just gotten the flag
+		if (positionKnown[agentId] && position.equals(enemyFlagPosition) && inEnvironment.hasFlag()) {
+			goingHome = true;
+		}
+		//if we are on our way back
+		if (goingHome) {
+			int move = getNextMoveFromHomeStack(inEnvironment);
+			if (!homePath.empty()){
+				return move;
+			}
+			else{
+				goingHome = false;
+			}
+		}
+		//make random possible move that is not in tabu list or a "bad" spot
+		if (positionKnown[0] && positionKnown[1]){
+			return move(inEnvironment);
+		}
+		else //wait until we know both positions 
+			{
+				return AgentAction.DO_NOTHING;
+			}
+		}
 	}
