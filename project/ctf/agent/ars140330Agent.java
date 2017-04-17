@@ -31,8 +31,9 @@ public class ars140330Agent extends Agent {
 	public static boolean pathFound;
 	public static boolean defensePositionsFound;
 	public static boolean initailizedObstacleArray = false;
-	public static final int TABU_SIZE_LIMIT = 3;
+	public static final int TABU_SIZE_LIMIT = 4;
 	public static final Integer[] moveList = {AgentAction.MOVE_NORTH,AgentAction.MOVE_SOUTH,AgentAction.MOVE_EAST,AgentAction.MOVE_WEST};
+	public int moves = 0;
 
 	public ars140330Agent(){
 		defenseGoal = new Position();
@@ -137,6 +138,32 @@ public class ars140330Agent extends Agent {
 			return null;
 		return newPosition;
 	}
+	public int findClosestMove(Position[] neighbors,Integer[] moveList,Boolean[] valid){
+		if (positionKnown[agentId]){
+			double smallestDistance = 1000;
+			int closestDirection = -2;
+			int direction;
+			int enemyX = enemyFlagPosition.row;
+			int enemyY = enemyFlagPosition.column;
+			for(int i = 0;i<4;i++){
+				direction = moveList[i];
+				Position neighbor = neighbors[direction];
+				if (valid[direction]){
+					int x = neighbor.row;
+					int y = neighbor.column;
+					double distance = Math.sqrt(Math.pow(x-enemyX,2)+Math.pow(y-enemyY,2));
+					if (distance < smallestDistance) {
+						smallestDistance = distance;
+						closestDirection = direction;
+					}
+
+				}
+			}
+			return closestDirection;
+
+		}
+		return -2;
+	}
 	public int move(AgentEnvironment inEnvironment) {
 		Position[] neighbors = new Position[4];
 		Boolean[] valid = {true,true,true,true};
@@ -163,7 +190,7 @@ public class ars140330Agent extends Agent {
 				positionTabu.remove(positionTabu.size()-1);
 			return AgentAction.DO_NOTHING;
 		}
-		//make undiscovered move
+		//try any new positions first
 		for(int i = 0;i<4;i++){
 			direction = moveList[i];
 			Position neighbor = neighbors[direction];
@@ -177,31 +204,45 @@ public class ars140330Agent extends Agent {
 				return direction;
 			}
 		}
-		//make random move
-		direction = -1;
-		while (direction == -1) {
-			double roll = Math.random();
-			if (roll < .25 && valid[0]) {
-					direction = AgentAction.MOVE_NORTH;
-				}
-			else if (roll >= .25 && roll < .5 && valid[1]) {
-					direction = AgentAction.MOVE_SOUTH;
-				}
-			else if (roll >=.5 && roll < .75 && valid[3]) {
-					direction = AgentAction.MOVE_WEST;
-				}
-			else
-				if (valid[2]){
-					direction = AgentAction.MOVE_EAST;
-				}
+		//no new moves, so randomly make a naive move or a random move
+		double roll = Math.random();
+		//make closest move
+		if (roll >= .66) {
+			int closest = findClosestMove(neighbors,moveList,valid);
+			Position closestNeighbor = neighbors[closest];
+			if (positionTabu.size() > TABU_SIZE_LIMIT)
+				positionTabu.remove(TABU_SIZE_LIMIT);
+			positionTabu.add(0,closestNeighbor);
+			position.set(closestNeighbor.row,closestNeighbor.column);
+			positionArray[agentId] = position;
+			return closest;
 		}
-
-		if (positionTabu.size() > TABU_SIZE_LIMIT)
-			positionTabu.remove(TABU_SIZE_LIMIT);
-		positionTabu.add(0,neighbors[direction]);
-		position = neighbors[direction];
-		positionArray[agentId] = position;
-		return direction;
+		else {
+			//no new moves so make random move
+			direction = -1;
+			while (direction == -1) {
+				roll = Math.random();
+				if (roll < .25 && valid[0]) {
+						direction = AgentAction.MOVE_NORTH;
+					}
+				else if (roll >= .25 && roll < .5 && valid[1]) {
+						direction = AgentAction.MOVE_SOUTH;
+					}
+				else if (roll >=.5 && roll < .75 && valid[3]) {
+						direction = AgentAction.MOVE_WEST;
+					}
+				else
+					if (valid[2]){
+						direction = AgentAction.MOVE_EAST;
+					}
+			}
+			if (positionTabu.size() > TABU_SIZE_LIMIT)
+				positionTabu.remove(TABU_SIZE_LIMIT);
+			positionTabu.add(0,neighbors[direction]);
+			position = neighbors[direction];
+			positionArray[agentId] = position;
+			return direction;
+		}
 	}
 	public boolean checkTabu(Position candidate) {
 		for (Position position: positionTabu){
@@ -228,8 +269,8 @@ public class ars140330Agent extends Agent {
 			return false;
 		return true;
 	}
-	public boolean notObstructed(int direction,AgentEnvironment inEnvironment,Position candidatePosition){
-		if (!teammateNotInWay(candidatePosition))
+	public boolean notObstructed(int direction,AgentEnvironment inEnvironment){
+		if (!teammateNotInWay(direction,inEnvironment))
 			return false;
 		//check if not obstructeed by obstacle
 		if (!validMove(direction,inEnvironment))
@@ -288,15 +329,12 @@ public class ars140330Agent extends Agent {
 			position.row = boardSize-1;
 			position.column = boardSize-1;
 		}
-		discoveredPositions = new HashSet<Position>();
 		positionArray[agentId] = position;
 		path = new LinkedList<Integer>();
 		positionTabu = new ArrayList<Position>();
 	}
 	public int getNextMoveFromPath(AgentEnvironment inEnvironment){
 		Integer direction =(Integer) path.pollFirst();
-		if (direction == null)
-			return -2;
 		if (teammateNotInWay(direction,inEnvironment)){
 			positionChanger(position,direction);
 			positionArray[agentId] = position;
@@ -330,8 +368,9 @@ public class ars140330Agent extends Agent {
 				if (neighbors[i]!=null && badPositions.contains(neighbors[i]))
 					blocked++;
 			}
-			if (blocked >=3)
-				badPositions.add(position);
+			if (blocked >=3){
+				badPositions.add(new Position(position));
+			}
 		}
 	}
 	public LinkedList<Integer> findPath(Position start, Position end) {
@@ -452,7 +491,6 @@ public class ars140330Agent extends Agent {
 				enemyFlagPosition = new Position(ourFlagPosition.row,0);
 		}
 		if (positionKnown[0] && positionKnown[1] && !defensePositionsFound){
-			System.out.println("defense positions discovered");
 			topDefendingPosition = new Position(positionArray[0]);
 			bottomDefendingPosition = new Position(positionArray[1]);
 			defensePositionsFound = true;
@@ -574,6 +612,15 @@ public class ars140330Agent extends Agent {
 					positionArray[agentId] = position;
 					return direction;
 				}
+				if (Math.abs(position.column - enemyFlagPosition.column) == 1){
+					if(inEnvironment.isBaseWest(inEnvironment.ENEMY_TEAM,false) && validMove(AgentAction.MOVE_WEST,inEnvironment))
+						direction = AgentAction.MOVE_WEST;
+					else if (inEnvironment.isBaseEast(inEnvironment.ENEMY_TEAM,false)&& validMove(AgentAction.MOVE_EAST,inEnvironment))
+						direction = AgentAction.MOVE_EAST;
+					positionChanger(position,direction);
+					positionArray[agentId] = position;
+					return direction;
+				}
 			}
 			//we have just gotten the flag
 			if (!pathFound && positionKnown[agentId] && position.equals(enemyFlagPosition) && inEnvironment.hasFlag()) {
@@ -584,10 +631,11 @@ public class ars140330Agent extends Agent {
 			else if (pathFound && !inEnvironment.hasFlag() && !inEnvironment.hasFlag(AgentEnvironment.OUR_TEAM)){
 				path = findPath(position,enemyFlagPosition);
 			}
-			if (path!= null) {
+			if (path!= null && path.size() !=0) {
 				int move = getNextMoveFromPath(inEnvironment);
-				if (move != -2)
-					return move;
+				positionChanger(position,move);
+				positionArray[agentId] = position;
+				return move;
 			}
 			//make random possible move that is not in tabu list or a "bad" spot
 			if (positionKnown[0] && positionKnown[1]){
