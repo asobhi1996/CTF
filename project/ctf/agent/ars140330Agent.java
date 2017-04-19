@@ -239,7 +239,6 @@ public class ars140330Agent extends Agent {
 			onRouteToGoal = true;
 		}
 		if (path != null && path.size() !=0) {
-			System.out.println("On path to undiscovered");
 			int move = tryNextMoveFromPath(inEnvironment);
 			if (move != -2){
 				return move;
@@ -249,10 +248,8 @@ public class ars140330Agent extends Agent {
 		int closest = findClosestMove(neighbors,moveList,valid);
 		Position closestNeighbor = neighbors[closest];
 		position.set(closestNeighbor);
-		System.out.println("make closest new move");
 		return closest;
 	}
-
 	public boolean notBabysitting(int direction, AgentEnvironment inEnvironment){
 		if (!inEnvironment.hasFlag() &&
 			(direction == AgentAction.MOVE_NORTH &&
@@ -320,15 +317,17 @@ public class ars140330Agent extends Agent {
 			position.column = boardSize-1;
 		}
 		path = new LinkedList<Integer>();
-		for (int i = 0;i<boardSize;i++){
-			if (ourSide.equals("left")){
-				map[i][boardSize-1] = 0;
+		if (agentId == 1) {
+			for (int i = 0;i<boardSize;i++){
+				if (ourSide.equals("left")){
+					map[i][boardSize-1] = 0;
+				}
+				else{
+					map[i][0] = 0;
+				}
 			}
-			else{
-				map[i][0] = 0;
-			}
+			enemyFlagGoal = true;
 		}
-		enemyFlagGoal = true;
 	}
 	public int getNextMoveFromPath(AgentEnvironment inEnvironment){
 		Integer direction =(Integer) path.pollFirst();
@@ -408,7 +407,7 @@ public class ars140330Agent extends Agent {
 					}
 				}
 			}
-		}	
+		}
 	return null;
 	}
 	public LinkedList<Integer> findPathToClosestUndiscoveredPosition(Position start) {
@@ -438,7 +437,9 @@ public class ars140330Agent extends Agent {
 					for(int i = 0;i<4;i++){
 						int dir = moveList[i];
 						Position neighbor = positionMaker(node,dir);
-						if (neighbor != null && (!neighbor.equals(ourFlagPosition) || inEnvironment.hasFlag()) && (map[neighbor.row][neighbor.column] == 0 || map[neighbor.row][neighbor.column] == 1) && !visited.contains(neighbor) && !enemyAgentAdjacent(dir,inEnvironment) &&(teammateNotInWay(dir,inEnvironment)||inEnvironment.hasFlag())){
+						if (node.equals(position) && enemyAgentAdjacent(dir,inEnvironment))
+							neighbor = null;
+						if (neighbor != null && (!neighbor.equals(ourFlagPosition) || inEnvironment.hasFlag()) && (map[neighbor.row][neighbor.column] == 0 || map[neighbor.row][neighbor.column] == 1) && !visited.contains(neighbor)  && (teammateNotInWay(dir,inEnvironment)||inEnvironment.hasFlag())){
 							neighbor.distance = node.distance + straightLineDistance(enemyFlagPosition,neighbor) + calculateNumberOfNewPositions(neighbor);
 							neighbor.parent = node;
 							neighbor.direction = dir;
@@ -605,7 +606,6 @@ public class ars140330Agent extends Agent {
 			}
 		}
 	}
-
 	public boolean enemyAgentAdjacent(int direction, AgentEnvironment inEnvironment){
 		if (direction == AgentAction.MOVE_NORTH && inEnvironment.isAgentNorth(inEnvironment.ENEMY_TEAM,true))
 			return true;
@@ -648,13 +648,43 @@ public class ars140330Agent extends Agent {
 		}
 		return -2;
 	}
+	public void printMapArray(){
+		if (agentId == 1){
+			if (initailizedMapArray) {
+				for(int i = 0;i<boardSize;i++){
+					for(int j = 0;j<boardSize;j++){
+						System.out.printf("%d ",map[i][j]);
+					}
+				System.out.println();
+			}
+			System.out.println();
+			}
+		}
+	}
+	public int capture(){
+		if (inEnvironment.hasFlag()) {
+				if (inEnvironment.isBaseNorth(inEnvironment.OUR_TEAM,true))
+					return AgentAction.MOVE_NORTH;
+				else if (inEnvironment.isBaseWest(inEnvironment.OUR_TEAM,true))
+					return AgentAction.MOVE_WEST;
+				else if (inEnvironment.isBaseSouth(inEnvironment.OUR_TEAM,true))
+					return AgentAction.MOVE_SOUTH;
+				else if (inEnvironment.isBaseEast(inEnvironment.OUR_TEAM,true))
+					return AgentAction.MOVE_EAST;
+			}
+			return -2;
+		}
 	// implements Agent.getMove() interface
 	public int getMove(AgentEnvironment inEnvironment) {
-		this.inEnvironment = inEnvironment;
+		this.inEnvironment = inEnvironment;		
+		int move;
+		move = capture();
+		if  (move != -2)
+			return move;
 		findCorner(inEnvironment);
-		int startingMove = findBoardSize(inEnvironment);
-		if(startingMove != -2)
-			return startingMove;
+		move = findBoardSize(inEnvironment);
+		if(move != -2)
+			return move;
 		checkIfTagged(inEnvironment);
 		learnAgentAndFlagPositions(inEnvironment);
 		addToBadPoistions(inEnvironment);
@@ -662,57 +692,31 @@ public class ars140330Agent extends Agent {
 		createMapArray();
 		initialMapUpdate();
 		updateMapArray(inEnvironment);
-		//check if the agent has just been tagged
-		//see if its in its starting corner and to the left/right of its base
 		//attacker
 		if (agentId == 1){
-			if (initailizedMapArray) {
-			for(int i = 0;i<boardSize;i++){
-				for(int j = 0;j<boardSize;j++){
-					System.out.printf("%d ",map[i][j]);
-				}
-			System.out.println();
-		}
-		System.out.println();
-			}
-			//see if we can go straight up or down to home
-			if (inEnvironment.hasFlag()) {
-				if (inEnvironment.isBaseNorth(inEnvironment.OUR_TEAM,true)
-				 || (inEnvironment.isBaseNorth(inEnvironment.OUR_TEAM,false) && !inEnvironment.isBaseWest(inEnvironment.OUR_TEAM,false) && !inEnvironment.isBaseEast(inEnvironment.OUR_TEAM,false))){
-					return AgentAction.MOVE_NORTH;
-			}
-				else if (inEnvironment.isBaseWest(inEnvironment.OUR_TEAM,true))
-					return AgentAction.MOVE_WEST;
-				else if (inEnvironment.isBaseSouth(inEnvironment.OUR_TEAM,true)
-					|| (inEnvironment.isBaseSouth(inEnvironment.OUR_TEAM,false) && !inEnvironment.isBaseWest(inEnvironment.OUR_TEAM,false) && !inEnvironment.isBaseEast(inEnvironment.OUR_TEAM,false)))
-					return AgentAction.MOVE_SOUTH;
-				else if (inEnvironment.isBaseEast(inEnvironment.OUR_TEAM,true))
-					return AgentAction.MOVE_EAST;
-			}
-			//see if the flag is immedietly next to us and go there
 			if (!inEnvironment.hasFlag() && !inEnvironment.hasFlag(inEnvironment.OUR_TEAM) && positionKnown[agentId]){
-				int direction = -2;
+				move = -2;
 				if (inEnvironment.isFlagNorth(inEnvironment.ENEMY_TEAM,true)
 					|| (inEnvironment.isFlagNorth(inEnvironment.ENEMY_TEAM,false) && position.column == enemyFlagPosition.column))
-					direction = AgentAction.MOVE_NORTH;
+					move = AgentAction.MOVE_NORTH;
 				else if (inEnvironment.isFlagWest(inEnvironment.ENEMY_TEAM,true))
-					direction = AgentAction.MOVE_WEST;
+					move = AgentAction.MOVE_WEST;
 				else if (inEnvironment.isFlagSouth(inEnvironment.ENEMY_TEAM,true)
 					|| (inEnvironment.isFlagSouth(inEnvironment.ENEMY_TEAM,false) && position.column == enemyFlagPosition.column))
-					direction = AgentAction.MOVE_SOUTH;
+					move = AgentAction.MOVE_SOUTH;
 				else if (inEnvironment.isFlagEast(inEnvironment.ENEMY_TEAM,true))
-					direction = AgentAction.MOVE_EAST;
-				if (direction != -2 && teammateNotInWay(direction,inEnvironment)){
-					positionChanger(position,direction);
-					return direction;
+					move = AgentAction.MOVE_EAST;
+				if (move != -2 && notObstructed(move,inEnvironment)){
+					positionChanger(position,move);
+					return move;
 				}
 				if (Math.abs(position.column - enemyFlagPosition.column) == 1){
 					if(inEnvironment.isBaseWest(inEnvironment.ENEMY_TEAM,false) && noObstacles(AgentAction.MOVE_WEST,inEnvironment))
-						direction = AgentAction.MOVE_WEST;
+						move = AgentAction.MOVE_WEST;
 					else if (inEnvironment.isBaseEast(inEnvironment.ENEMY_TEAM,false)&& noObstacles(AgentAction.MOVE_EAST,inEnvironment))
-						direction = AgentAction.MOVE_EAST;
-					positionChanger(position,direction);
-					return direction;
+						move = AgentAction.MOVE_EAST;
+					positionChanger(position,move);
+					return move;
 				}
 			}
 			//we have just gotten the flag
@@ -722,37 +726,34 @@ public class ars140330Agent extends Agent {
 			if (enemyFlagGoal){
 				path = findPathToClosestUndiscoveredPosition(position);
 				if (path != null && path.size() > 0) {
-					int move = getNextMoveFromPath(inEnvironment);
+					move = getNextMoveFromPath(inEnvironment);
 					return move;
 				}	
 			}
 			else {
 				path = findPath(position,ourFlagPosition);
 				if (path != null && path.size() > 0) {
-					int move = getNextMoveFromPath(inEnvironment);
+					move = getNextMoveFromPath(inEnvironment);
 					return move;
 				}
-				else
-					System.out.println("wtf");
-			}
 			if (positionKnown[0] && positionKnown[1]){
 				return move(inEnvironment);
 			}
 			else //wait until we know both positions 
-				{
-					return AgentAction.DO_NOTHING;
-				}
+				return AgentAction.DO_NOTHING;
+			}
 		}
 		else {
-			int attack = attack();
-			if (attack != -2)
-				return attack;
-			int direction = defend();
-			if (direction != -2)
-				return direction;
+			move = attack();
+			if (move != -2)
+				return move;
+			move = defend();
+			if (move != -2)
+				return move;
 			if (positionKnown[0] && positionKnown[1])
 				return move(inEnvironment);
 			return AgentAction.DO_NOTHING;
 		}
+		return AgentAction.DO_NOTHING;
 	}
 }
