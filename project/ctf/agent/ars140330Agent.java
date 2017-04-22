@@ -6,43 +6,41 @@ import ctf.agent.Agent;
 import ctf.common.AgentAction;
 
 public class ars140330Agent extends Agent {
+	public static final Integer[] moveList = {AgentAction.MOVE_NORTH,AgentAction.MOVE_SOUTH,AgentAction.MOVE_EAST,AgentAction.MOVE_WEST};
 	public static AgentEnvironment inEnvironment;
 	public static int boardSize = 1;
 	public static int id = 0;
+	public static byte[][] map;
+	public static int[][] tagged;
+	public static boolean[][] mine;
 	public static String ourSide;
-	public static boolean[] boardSizeKnown = {false,false};
-	public static boolean[] positionKnown = {false,false};
-	public static Position topDefendingPosition;
-	public static Position bottomDefendingPosition;
-	public static Position topAttackingPosition,bottomAttackingPosition;
-	public static Position defenseGoal;
-	public static Position enemyFlagPosition;
-	public static Position ourFlagPosition;
+	public static boolean[] boardSizeKnown, positionKnown;
+	public static Position topDefendingPosition, bottomDefendingPosition, topAttackingPosition, bottomAttackingPosition, defenseGoal;
+	public static Position enemyFlagPosition, ourFlagPosition;
 	public static Set<Position> badPositions = new HashSet<Position>();
 	public static Set<Position> discoveredPositions = new HashSet<Position>();
-	public static byte[][] map;
-	public LinkedList<Integer> path;
-	public ArrayList<Byte> beginningObstacles;
-	public int agentId;
+	public static ArrayList<Position> defenseMinePositions;
+	public static boolean minesPlanted, enemyFlagGoal,defensePositionsFound, initailizedMapArray;
+
+	public LinkedList<Integer> path; //general purpose path
+	public ArrayList<Byte> beginningObstacles; //as we make our intitial path to our flag, see if things on the penultimate column are blocked
+	public int agentId; //used to identify the two agents
 	public int beginningSteps; //used to calculate boardSize
 	public int startingCorner; //0 indicates NorthWest, 1 NorthEast, 2 SouthWest, 3 Southeast
 	public Position position; //holds the x,y coordinates of the agent
 	public boolean cornerKnown;; //flag for if agent knows its starting corner
-	public static boolean enemyFlagGoal;
-	public static boolean defensePositionsFound;
-	public static boolean initailizedMapArray = false;
-	public static final Integer[] moveList = {AgentAction.MOVE_NORTH,AgentAction.MOVE_SOUTH,AgentAction.MOVE_EAST,AgentAction.MOVE_WEST};
-	public int moves = 0;
+	public int moves;
 	public boolean initialMapUpdateFlag;
 	public boolean onRouteToGoal;
 	public Position goal;
-	public ArrayList<Position> positionTabu;
-	public static int[][] tagged;
-	public static boolean[][] mine;
-	public static ArrayList<Position> defenseMinePositions;
-	public static boolean minesPlanted;
+	public boolean selfDestruct;
+	public int[][] enemyPositions;
 
 	public ars140330Agent(){
+		moves = 0;
+		selfDestruct = false;
+		boardSizeKnown = new boolean[2];
+		positionKnown = new boolean[2];
 		defenseGoal = new Position();
 		boardSize = 1;
 		this.agentId = id++;
@@ -72,13 +70,13 @@ public class ars140330Agent extends Agent {
 		initialMapUpdateFlag = false;
 		onRouteToGoal = false;
 		goal = null;
-		positionTabu = new ArrayList<Position>();
 		tagged = null;
 		mine = null;
 		topDefendingPosition = null;
 		minesPlanted = false;
 		topAttackingPosition = null;
 		defenseMinePositions = null;
+		enemyPositions = new int[boardSize][boardSize];
 	}
 	private class Position implements Comparable<Position> {
 		public int row, column,direction, tagged;
@@ -97,7 +95,6 @@ public class ars140330Agent extends Agent {
 		Position(Position other) {
 			this.row = other.row;
 			this.column = other.column;
-			this.distance = 1000;
 		}
 		public void set(int row, int column){
 			this.row = row;
@@ -107,7 +104,6 @@ public class ars140330Agent extends Agent {
 		public void set(Position pos) {
 			this.row = pos.row;
 			this.column = pos.column;
-			this.distance = pos.distance;
 		}
 
 		@Override
@@ -171,49 +167,6 @@ public class ars140330Agent extends Agent {
 			return null;
 		return new Position(row,column);
 	}
-	public int findClosestMove(Position[] neighbors,Integer[] moveList,Boolean[] valid){
-		if (positionKnown[agentId]){
-			double smallestDistance = 1000;
-			int closestDirection = -2;
-			int direction;
-			int enemyX = enemyFlagPosition.row;
-			int enemyY = enemyFlagPosition.column;
-			double distance;
-			for(int i = 0;i<4;i++){
-				direction = moveList[i];
-				Position neighbor = neighbors[direction];
-				if (valid[direction]){
-					distance = straightLineDistance(neighbor,enemyFlagPosition);
-					if (distance < smallestDistance) {
-						smallestDistance = distance;
-						closestDirection = direction;
-					}
-
-				}
-			}
-			return closestDirection;
-
-		}
-		return -2;
-	}
-	public boolean adjacentToGoal(){
-		if (positionKnown[agentId] && goal != null){
-			for (int i = 0;i<4;i++){
-				Position neighbor = positionMaker(position,i);
-				if (neighbor != null && neighbor.equals(goal))
-					return true;
-			}
-		}
-		return false;
-	}
-	public boolean checkTabu(Position candidate) {
-		for (Position position: positionTabu){
-			if(candidate == null || position.equals(candidate)) {
-				return false;
-			}
-		}
-		return true;
-	}
 	public void plantMine(){
 		mine[position.row][position.column] = true;
 	}
@@ -228,10 +181,7 @@ public class ars140330Agent extends Agent {
 		for(int i = 0;i<4;i++){
 			direction = moveList[i];
 			neighbors[direction] = positionMaker(position,direction);
-			if(neighbors[direction] == null || neighbors[direction].row < 0 || neighbors[direction].row >= boardSize || neighbors[direction].column < 0 || neighbors[direction].column >= boardSize)
-				valid[direction] = false;
-			if (!noObstacles(direction,inEnvironment) || badPositions.contains(neighbors[direction])
-				|| !teammateNotInWay(direction,inEnvironment) || !notBabysitting(direction,inEnvironment))
+			if (neighbors[direction] == null || !noObstacles(direction,inEnvironment) || badPositions.contains(neighbors[direction]) ||                  !teammateNotInWay(direction,inEnvironment) || !notBabysitting(direction,inEnvironment))
 				valid[direction] = false;
 		}
 		//see if there is at least one valid new position
@@ -243,12 +193,11 @@ public class ars140330Agent extends Agent {
 			}
 		}
 		if (validNeighbors == 0) {
+			System.out.println("No neighbors");
+			selfDestruct = true;
 			return AgentAction.PLANT_HYPERDEADLY_PROXIMITY_MINE;
 		}
-		int closest = findClosestMove(neighbors,moveList,valid);
-		Position closestNeighbor = neighbors[closest];
-		position.set(closestNeighbor);
-		return closest;
+		return AgentAction.DO_NOTHING;
 	}
 	public boolean notBabysitting(int direction, AgentEnvironment inEnvironment){
 		if (!inEnvironment.hasFlag() &&
@@ -300,8 +249,10 @@ public class ars140330Agent extends Agent {
 		return false;
 	}
 	public void returnToStart() {
+		if (agentId == 0)
+			defenseGoal = topDefendingPosition;
 		if (agentId == 1 && positionKnown[0] && positionKnown[1] && !position.equals(enemyFlagPosition))
-		tagged[position.row][position.column]++;
+			tagged[position.row][position.column]++;
 		if (startingCorner == 0){
 			position.row = 0;
 			position.column = 0;
@@ -401,7 +352,9 @@ public class ars140330Agent extends Agent {
 					for(int dir = 0;dir<4;dir++){
 						Position neighbor = positionMaker(node,dir);
 						if (neighbor != null && (mine == null || !mine[neighbor.row][neighbor.column])  &&(!neighbor.equals(ourFlagPosition) || inEnvironment.hasFlag()) && map[neighbor.row][neighbor.column] == 1  && !visited.contains(neighbor) &&(teammateNotInWay(dir,inEnvironment)||inEnvironment.hasFlag())){
-							neighbor.distance = node.distance + straightLineDistance(end,neighbor);
+							neighbor.distance = node.distance + straightLineDistance(end,neighbor) + getNumberOfTags(neighbor);
+							if (agentId == 1)
+								neighbor.distance+= moveAwayFromEnemy(neighbor);
 							neighbor.parent = node;
 							neighbor.direction = dir;
 							pq.add(neighbor);
@@ -425,7 +378,7 @@ public class ars140330Agent extends Agent {
 			visited.add(start);
 			while (pq.size() > 0) {
 				Position node = pq.poll();
-				if (map[node.row][node.column] == 0){
+				if (node.equals(goal) || map[node.row][node.column] == 0){
 					goal = node.parent;
 					while (node.parent != null){
 						pathList.add(0,node.direction);
@@ -444,6 +397,8 @@ public class ars140330Agent extends Agent {
 							neighbor = null;
 						if (neighbor != null && (!neighbor.equals(ourFlagPosition) || inEnvironment.hasFlag()) && (map[neighbor.row][neighbor.column] == 0 || map[neighbor.row][neighbor.column] == 1) && !visited.contains(neighbor)  && (teammateNotInWay(dir,inEnvironment)||inEnvironment.hasFlag())){
 							neighbor.distance = node.distance + straightLineDistance(goal,neighbor) + calculateNumberOfNewPositions(neighbor) + isEnemyColumn(neighbor) + getNumberOfTags(neighbor);
+							if (agentId == 1)
+								neighbor.distance += moveAwayFromEnemy(neighbor);
 							neighbor.parent = node;
 							neighbor.direction = dir;
 							pq.add(neighbor);
@@ -484,9 +439,9 @@ public class ars140330Agent extends Agent {
 					for(int i = 0;i<4;i++){
 						int dir = moveList[i];
 						Position neighbor = positionMaker(node,dir);
-						if (node.equals(position) && enemyAgentAdjacent(dir,inEnvironment))
+						if (node.equals(position))
 							neighbor = null;
-						if (neighbor != null  && (mine == null || !mine[neighbor.row][neighbor.column]) && (!neighbor.equals(ourFlagPosition) || inEnvironment.hasFlag()) && (map[neighbor.row][neighbor.column] == 0 || map[neighbor.row][neighbor.column] == 1) && !visited.contains(neighbor)  && (teammateNotInWay(dir,inEnvironment)||inEnvironment.hasFlag())){
+						if (neighbor != null  && (mine == null || !mine[neighbor.row][neighbor.column]) && (!neighbor.equals(ourFlagPosition) || inEnvironment.hasFlag()) && (map[neighbor.row][neighbor.column] == 0 || map[neighbor.row][neighbor.column] == 1) && !visited.contains(neighbor)){
 							neighbor.distance = node.distance + straightLineDistance(goal,neighbor);
 							neighbor.parent = node;
 							neighbor.direction = dir;
@@ -518,6 +473,40 @@ public class ars140330Agent extends Agent {
 				known--;
 		}
 		return known;
+	}
+	public int moveAwayFromEnemy(Position neighbor){
+		return enemyPositions[neighbor.row][neighbor.column];
+
+	}
+
+	public void makeEnemyPositionArray(){
+		if (positionKnown[agentId]) {
+			boolean atLeastOneAbove = inEnvironment.isAgentNorth(inEnvironment.ENEMY_TEAM,false);
+			boolean atLeastOneBelow = inEnvironment.isAgentSouth(inEnvironment.ENEMY_TEAM,false);
+			boolean atLeastOneWest = inEnvironment.isAgentWest(inEnvironment.ENEMY_TEAM,false);
+			boolean atLeastOneEast = inEnvironment.isAgentEast(inEnvironment.ENEMY_TEAM,false);
+			enemyPositions = new int[boardSize][boardSize];
+			for(int row = 0;row <boardSize;row++){
+				for(int col = 0;col<boardSize;col++){
+					if (atLeastOneAbove ^ atLeastOneBelow){
+						if (atLeastOneAbove && row < position.row){
+							enemyPositions[row][col]+=3;
+						}
+						else if (row > position.row) {
+							enemyPositions[row][col] += 3;
+						}
+
+					}
+					if (atLeastOneWest ^ atLeastOneEast) {
+						if (atLeastOneWest & col < position.column)
+							enemyPositions[row][col]+=3;
+						else if (col > position.column)
+							enemyPositions[row][col] += 3;
+					}
+				}
+			}
+		}
+
 	}
 	public void findCorner(AgentEnvironment inEnvironment) {
 		if (!cornerKnown) {
@@ -601,18 +590,12 @@ public class ars140330Agent extends Agent {
 			else
 				enemyFlagPosition = new Position(ourFlagPosition.row,0);
 
-			topDefendingPosition = new Position(ourFlagPosition.row+1,ourFlagPosition.column);
-			bottomDefendingPosition = new Position(ourFlagPosition.row-1,ourFlagPosition.column);
+			topDefendingPosition = new Position(ourFlagPosition.row-1,ourFlagPosition.column);
+			bottomDefendingPosition = new Position(ourFlagPosition.row+1,ourFlagPosition.column);
 			topAttackingPosition = new Position(enemyFlagPosition.row-1,enemyFlagPosition.column);
 			bottomAttackingPosition= new Position(enemyFlagPosition.row+1,enemyFlagPosition.column);
-			if (topDefendingPosition.row > bottomDefendingPosition.row) {
-				Position temp = new Position(topDefendingPosition);
-				topDefendingPosition = bottomDefendingPosition;
-				bottomDefendingPosition = temp;
-			}
 			defensePositionsFound = true;
-			defenseGoal.set(topDefendingPosition);
-		}
+			defenseGoal.set(topDefendingPosition);		}
 	}
 	public void addToDiscoveredPositions(){
 		if(positionKnown[agentId]){
@@ -686,16 +669,14 @@ public class ars140330Agent extends Agent {
 	}
 	public int defend() {
 		if (defensePositionsFound && positionKnown[agentId]){
-			if (position.equals(topDefendingPosition) && defenseGoal.equals(position)){
-				defenseGoal.set(bottomDefendingPosition);
-				return AgentAction.PLANT_HYPERDEADLY_PROXIMITY_MINE;
+			if (position.equals(topDefendingPosition) && defenseGoal.equals(topDefendingPosition)){
+				defenseGoal = bottomDefendingPosition;
 			}
-			else if (position.equals(bottomDefendingPosition))
-				defenseGoal.set(topDefendingPosition);
-			path = findPath(new Position(position),new Position(defenseGoal));
-			if (path!=null){
+			else if (position.equals(bottomDefendingPosition) && defenseGoal.equals(bottomDefendingPosition)){
+				defenseGoal = topDefendingPosition;
+			}
+			if (!minesPlanted) {
 				if (defenseMinePositions == null) {
-					System.out.println("should occur once");
 					calculateDefenseMinePositions();
 				}
 				if (!minesPlanted && defenseMinePositions != null){
@@ -703,19 +684,20 @@ public class ars140330Agent extends Agent {
 					if (direction != -2)
 						return direction;
 				}
-				int direction = getNextMoveFromPath(inEnvironment);
-				if (teammateNotInWay(direction,inEnvironment)){
-					return direction;
-				}
-			}
-			else {
-				printMapArray();
-				path = findPathToDefense(position,defenseGoal);
-				if (path != null) {
+				path = findPathToClosestUndiscoveredPosition(position,defenseGoal);
+				if (path != null){
 					int direction = tryNextMoveFromPath(inEnvironment);
 					if (direction != -2 && teammateNotInWay(direction,inEnvironment))
 						return direction;
 				}
+			}
+			path = findPath(position,defenseGoal);
+			if (path == null) 
+				path = findPathToDefense(position,defenseGoal);
+			if (path != null) {
+				int direction = tryNextMoveFromPath(inEnvironment);
+				if (direction != -2 && teammateNotInWay(direction,inEnvironment))
+					return direction;
 			}
 		}
 		return -2;
@@ -728,7 +710,17 @@ public class ars140330Agent extends Agent {
 			}
 			if (map[pos.row][pos.column] == 1 && !mine[pos.row][pos.column]) {
 				path = findPath(position,pos);
-				return getNextMoveFromPath(inEnvironment);
+				if (path == null)
+					path = findPathToClosestUndiscoveredPosition(position,enemyFlagPosition);
+				if (path != null) {
+					int mve = tryNextMoveFromPath(inEnvironment); 
+					if (mve != -2)
+						return mve;
+				}
+				else{
+					selfDestruct = true;
+					return AgentAction.PLANT_HYPERDEADLY_PROXIMITY_MINE;
+				}
 			}
 		}
 		minesPlanted = true;
@@ -749,10 +741,6 @@ public class ars140330Agent extends Agent {
 					int row = ourFlagPosition.row-1+i;
 					Position bomb = new Position(row,column);
 					defenseMinePositions.add(bomb);
-					System.out.printf("Adding (%d,%d)",ourFlagPosition.row-1+i,ourFlagPosition.column+2);
-				}
-				else{
-					System.out.printf("(%d,%d) is not 1",ourFlagPosition.row-1+i,ourFlagPosition.column+2);
 				}
 			}
 			for (Position k: defenseMinePositions)
@@ -798,6 +786,16 @@ public class ars140330Agent extends Agent {
 	public int getMove(AgentEnvironment inEnvironment) {
 		this.inEnvironment = inEnvironment;		
 		int move;
+		if (mine != null &&  moves % 20 == 0){
+			mine[ourFlagPosition.row][ourFlagPosition.column+2] = false;
+			minesPlanted = false;
+		}
+		if (selfDestruct)
+		{
+			selfDestruct = false;
+			return AgentAction.DO_NOTHING;
+		}
+		moves++;
 		move = capture();
 		if  (move != -2)
 			return move;
@@ -812,6 +810,7 @@ public class ars140330Agent extends Agent {
 		createMapArray();
 		initialMapUpdate();
 		updateMapArray(inEnvironment);
+		makeEnemyPositionArray();
 		//attacker
 		if (agentId == 1){
 			if (!inEnvironment.hasFlag() && !inEnvironment.hasFlag(inEnvironment.OUR_TEAM) && positionKnown[agentId]){
@@ -868,9 +867,12 @@ public class ars140330Agent extends Agent {
 				if (move != -2)
 					return move;
 			}
-			if (positionKnown[0] && positionKnown[1])
-				return move(inEnvironment);
-			return AgentAction.DO_NOTHING;
+			return defend();
+			//if (positionKnown[0] && positionKnown[1]){
+			//	printMapArray();
+		//		return move(inEnvironment);
+		//	}
+		//	return AgentAction.DO_NOTHING;
 		}
 	}
 }
