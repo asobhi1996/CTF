@@ -20,6 +20,8 @@ public class ars140330Agent extends Agent {
 	public static Set<Position> badPositions = new HashSet<Position>();
 	public static ArrayList<Position> defenseMinePositions;
 	public static boolean minesPlanted, enemyFlagGoal,defensePositionsFound, initailizedMapArray;
+	public static boolean everyThingOk;
+	public static int mineColumn;
 
 	public LinkedList<Integer> path; //general purpose path
 	public ArrayList<Byte> beginningObstacles; //as we make our intitial path to our flag, see if things on the penultimate column are blocked
@@ -77,6 +79,8 @@ public class ars140330Agent extends Agent {
 		topAttackingPosition = null;
 		defenseMinePositions = null;
 		enemyPositions = new int[boardSize][boardSize];
+		everyThingOk = true;
+		mineColumn = 0;
 	}
 	private class Position implements Comparable<Position> {
 		public int row, column,direction, tagged;
@@ -589,17 +593,22 @@ public class ars140330Agent extends Agent {
 				ourFlagPosition = positionMaker(position,AgentAction.MOVE_SOUTH);
 		}
 		if (positionKnown[0] && positionKnown[1] && !defensePositionsFound){
-			if (ourSide.equals("left"))
+			if (ourSide.equals("left")){
 				enemyFlagPosition = new Position(ourFlagPosition.row,boardSize-1);
-			else
+				mineColumn = ourFlagPosition.column+2;
+			}
+			else{
 				enemyFlagPosition = new Position(ourFlagPosition.row,0);
+				mineColumn = ourFlagPosition.column-2;
+			}
 
 			topDefendingPosition = new Position(ourFlagPosition.row-1,ourFlagPosition.column);
 			bottomDefendingPosition = new Position(ourFlagPosition.row+1,ourFlagPosition.column);
 			topAttackingPosition = new Position(enemyFlagPosition.row-1,enemyFlagPosition.column);
 			bottomAttackingPosition= new Position(enemyFlagPosition.row+1,enemyFlagPosition.column);
 			defensePositionsFound = true;
-			defenseGoal.set(topDefendingPosition);		}
+			defenseGoal.set(topDefendingPosition);	
+		}
 	}
 	public void createMapArray(){
 		if(!initailizedMapArray && boardSizeKnown[0] && boardSizeKnown[1]){
@@ -784,7 +793,7 @@ public class ars140330Agent extends Agent {
 
 	public boolean areMinesPlanted(){
 		for(int i = 0;i<3;i++) {
-			if (!mine[ourFlagPosition.row-1+i][ourFlagPosition.column+2] && map[ourFlagPosition.row-1+i][ourFlagPosition.column+2] == 1)
+			if (!mine[ourFlagPosition.row-1+i][mineColumn] && map[ourFlagPosition.row-1+i][mineColumn] == 1)
 				return false;
 		}
 		return true;
@@ -826,7 +835,7 @@ public class ars140330Agent extends Agent {
 	}
 	public boolean calculateDefenseMinePositions(){
 		for(int j = 0; j<3;j++){
-			if (map[ourFlagPosition.row-1+j][ourFlagPosition.column+2] == 0) 
+			if (map[ourFlagPosition.row-1+j][mineColumn] == 0) 
 				return false;
 		}
 		if (defenseMinePositions == null){
@@ -834,10 +843,9 @@ public class ars140330Agent extends Agent {
 			mine = new boolean [boardSize][boardSize];
 			defenseMinePositions = new ArrayList<Position>();
 			for(int i = 0;i<3;i++){
-				if (map[ourFlagPosition.row-1+i][ourFlagPosition.column+2] == 1) {
-					int column = ourFlagPosition.column +2;
+				if (map[ourFlagPosition.row-1+i][mineColumn] == 1) {
 					int row = ourFlagPosition.row-1+i;
-					Position bomb = new Position(row,column);
+					Position bomb = new Position(row,mineColumn);
 					defenseMinePositions.add(bomb);
 				}
 			}
@@ -1030,7 +1038,7 @@ public class ars140330Agent extends Agent {
 		this.inEnvironment = inEnvironment;		
 		int move;
 		if (mine != null &&  moves % 25 == 1){
-			mine[ourFlagPosition.row][ourFlagPosition.column+2] = false;
+			mine[ourFlagPosition.row][mineColumn] = false;
 			minesPlanted = false;
 		}
 		if (selfDestruct) {
