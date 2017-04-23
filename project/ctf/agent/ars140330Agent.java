@@ -18,7 +18,6 @@ public class ars140330Agent extends Agent {
 	public static Position topDefendingPosition, bottomDefendingPosition, topAttackingPosition, bottomAttackingPosition, defenseGoal;
 	public static Position enemyFlagPosition, ourFlagPosition;
 	public static Set<Position> badPositions = new HashSet<Position>();
-	public static Set<Position> discoveredPositions = new HashSet<Position>();
 	public static ArrayList<Position> defenseMinePositions;
 	public static boolean minesPlanted, enemyFlagGoal,defensePositionsFound, initailizedMapArray;
 
@@ -35,9 +34,11 @@ public class ars140330Agent extends Agent {
 	public Position goal;
 	public boolean selfDestruct;
 	public int[][] enemyPositions;
+	public boolean onPath;
 
 	public ars140330Agent(){
 		moves = 0;
+		onPath = false;
 		selfDestruct = false;
 		boardSizeKnown = new boolean[2];
 		positionKnown = new boolean[2];
@@ -51,7 +52,6 @@ public class ars140330Agent extends Agent {
 		enemyFlagPosition = null;
 		ourFlagPosition = null;
 		badPositions = new HashSet<Position>();
-		discoveredPositions = new HashSet<Position>();
 		map = null;
 		path = new LinkedList<Integer>();
 		beginningSteps = 0;
@@ -80,7 +80,7 @@ public class ars140330Agent extends Agent {
 	}
 	private class Position implements Comparable<Position> {
 		public int row, column,direction, tagged;
-		public double distance;
+		public double distance, cost;
 		public Position parent;
 		Position(){
 			this.row = -1;
@@ -122,9 +122,9 @@ public class ars140330Agent extends Agent {
 	    }
 	    @Override
 	    public int compareTo(Position other){
-	        if (this.distance < other.distance)
+	        if (this.cost < other.cost)
 	        	return -1;
-	        else if (this.distance > other.distance)
+	        else if (this.cost > other.cost)
 	        	return 1;
 	        else
 	        	return 0;
@@ -167,12 +167,8 @@ public class ars140330Agent extends Agent {
 			return null;
 		return new Position(row,column);
 	}
-	public void plantMine(){
-		mine[position.row][position.column] = true;
-	}
 	public int move(AgentEnvironment inEnvironment) {
-		if (agentId == 1)
-			System.out.println("test");	
+		System.out.println("test");	
 		Position[] neighbors = new Position[4];
 		Boolean[] valid = {true,true,true,true};
 		Collections.shuffle(Arrays.asList(moveList));
@@ -193,8 +189,8 @@ public class ars140330Agent extends Agent {
 			}
 		}
 		if (validNeighbors == 0) {
-			System.out.println("No neighbors");
 			selfDestruct = true;
+			System.out.println("deb 212");
 			return AgentAction.PLANT_HYPERDEADLY_PROXIMITY_MINE;
 		}
 		return AgentAction.DO_NOTHING;
@@ -253,6 +249,8 @@ public class ars140330Agent extends Agent {
 			defenseGoal = topDefendingPosition;
 		if (agentId == 1 && positionKnown[0] && positionKnown[1] && !position.equals(enemyFlagPosition))
 			tagged[position.row][position.column]++;
+		onPath = false;
+		path = new LinkedList<Integer>();
 		if (startingCorner == 0){
 			position.row = 0;
 			position.column = 0;
@@ -339,6 +337,10 @@ public class ars140330Agent extends Agent {
 			Position node = new Position();
 			while (pq.size() > 0) {
 				node = pq.poll();
+				if (!inEnvironment.hasFlag() && node.distance > boardSize){
+					System.out.println("cutoff");
+					return null;
+				}
 				if (node.equals(end)){
 					while (node.parent != null){
 						pathList.add(0,node.direction);
@@ -351,10 +353,13 @@ public class ars140330Agent extends Agent {
 					visited.add(node);
 					for(int dir = 0;dir<4;dir++){
 						Position neighbor = positionMaker(node,dir);
-						if (neighbor != null && (mine == null || !mine[neighbor.row][neighbor.column])  &&(!neighbor.equals(ourFlagPosition) || inEnvironment.hasFlag()) && map[neighbor.row][neighbor.column] == 1  && !visited.contains(neighbor) &&(teammateNotInWay(dir,inEnvironment)||inEnvironment.hasFlag())){
-							neighbor.distance = node.distance + straightLineDistance(end,neighbor) + getNumberOfTags(neighbor);
-							if (agentId == 1)
-								neighbor.distance+= moveAwayFromEnemy(neighbor);
+						if (node.equals(position) && (enemyAgentAdjacent(dir,inEnvironment) || !notObstructed(dir,inEnvironment)))
+							neighbor = null;
+						if (neighbor != null && inEnvironment.hasFlag() && neighbor.row == ourFlagPosition.row && neighbor.column == ourFlagPosition.column + 2)
+							neighbor = null;
+						if (neighbor != null && (mine == null || !mine[neighbor.row][neighbor.column]) &&(!neighbor.equals(ourFlagPosition) || inEnvironment.hasFlag()) && map[neighbor.row][neighbor.column] == 1  && !visited.contains(neighbor) &&(teammateNotInWay(dir,inEnvironment)||inEnvironment.hasFlag())){
+							neighbor.distance = node.distance + 1;
+							neighbor.cost = neighbor.distance + straightLineDistance(end,neighbor) + getNumberOfTags(neighbor) + isEnemyColumn(neighbor);
 							neighbor.parent = node;
 							neighbor.direction = dir;
 							pq.add(neighbor);
@@ -363,7 +368,6 @@ public class ars140330Agent extends Agent {
 				}
 			}
 		}
-	System.out.println("Failed to find a path to end");
 	return null;
 	}
 	public LinkedList<Integer> findPathToClosestUndiscoveredPosition(Position start,Position goal) {
@@ -396,9 +400,14 @@ public class ars140330Agent extends Agent {
 						if (node.equals(position) && enemyAgentAdjacent(dir,inEnvironment) && position.column != enemyFlagPosition.column)
 							neighbor = null;
 						if (neighbor != null && (!neighbor.equals(ourFlagPosition) || inEnvironment.hasFlag()) && (map[neighbor.row][neighbor.column] == 0 || map[neighbor.row][neighbor.column] == 1) && !visited.contains(neighbor)  && (teammateNotInWay(dir,inEnvironment)||inEnvironment.hasFlag())){
-							neighbor.distance = node.distance + straightLineDistance(goal,neighbor) + calculateNumberOfNewPositions(neighbor) + isEnemyColumn(neighbor) + getNumberOfTags(neighbor);
-							if (agentId == 1)
-								neighbor.distance += moveAwayFromEnemy(neighbor);
+							neighbor.distance = node.distance + 1;
+							neighbor.cost = neighbor.distance + straightLineDistance(goal,neighbor);
+							if (agentId == 1) {
+								neighbor.cost += moveAwayFromEnemy(neighbor);
+								neighbor.cost += getNumberOfTags(neighbor);
+								if (!inEnvironment.hasFlag()) 
+									neighbor.cost += isEnemyColumn(neighbor);
+							}
 							neighbor.parent = node;
 							neighbor.direction = dir;
 							pq.add(neighbor);
@@ -407,7 +416,6 @@ public class ars140330Agent extends Agent {
 				}
 			}
 		}
-		System.out.println("Failed to find a path to new node");
 		//could not find a path
 		return null;
 	}
@@ -423,9 +431,7 @@ public class ars140330Agent extends Agent {
 			visited.add(start);
 			while (pq.size() > 0) {
 				Position node = pq.poll();
-				if (!node.equals(start) && map[node.row][node.column] == 0){
-					goal = node;
-					System.out.println(goal);
+				if (node.equals(goal) || map[node.row][node.column] == 0){
 					while (node.parent != null){
 						pathList.add(0,node.direction);
 						node.distance = 1000;
@@ -439,10 +445,9 @@ public class ars140330Agent extends Agent {
 					for(int i = 0;i<4;i++){
 						int dir = moveList[i];
 						Position neighbor = positionMaker(node,dir);
-						if (node.equals(position))
-							neighbor = null;
 						if (neighbor != null  && (mine == null || !mine[neighbor.row][neighbor.column]) && (!neighbor.equals(ourFlagPosition) || inEnvironment.hasFlag()) && (map[neighbor.row][neighbor.column] == 0 || map[neighbor.row][neighbor.column] == 1) && !visited.contains(neighbor)){
-							neighbor.distance = node.distance + straightLineDistance(goal,neighbor);
+							neighbor.distance = node.distance + 1;
+							neighbor.cost = neighbor.distance + 1.5  *straightLineDistance(goal,neighbor);
 							neighbor.parent = node;
 							neighbor.direction = dir;
 							pq.add(neighbor);
@@ -451,7 +456,6 @@ public class ars140330Agent extends Agent {
 				}
 			}
 		}
-		System.out.println("Failed to find a path to new defense  node");
 		//could not find a path
 		return null;
 	}
@@ -460,7 +464,7 @@ public class ars140330Agent extends Agent {
 	}
 	public int isEnemyColumn(Position pos){
 		if (pos.column == enemyFlagPosition.column)
-			return -3;
+			return (int) -boardSize/3;
 		else
 			return 0;
 	}
@@ -490,18 +494,18 @@ public class ars140330Agent extends Agent {
 				for(int col = 0;col<boardSize;col++){
 					if (atLeastOneAbove ^ atLeastOneBelow){
 						if (atLeastOneAbove && row < position.row){
-							enemyPositions[row][col]+=3;
+							enemyPositions[row][col]+=1;
 						}
 						else if (row > position.row) {
-							enemyPositions[row][col] += 3;
+							enemyPositions[row][col] += 1;
 						}
 
 					}
 					if (atLeastOneWest ^ atLeastOneEast) {
 						if (atLeastOneWest & col < position.column)
-							enemyPositions[row][col]+=3;
+							enemyPositions[row][col]+=1;
 						else if (col > position.column)
-							enemyPositions[row][col] += 3;
+							enemyPositions[row][col] += 1;
 					}
 				}
 			}
@@ -597,13 +601,6 @@ public class ars140330Agent extends Agent {
 			defensePositionsFound = true;
 			defenseGoal.set(topDefendingPosition);		}
 	}
-	public void addToDiscoveredPositions(){
-		if(positionKnown[agentId]){
-			if (!discoveredPositions.contains(position)){
-				discoveredPositions.add(position);
-			}
-		}
-	}
 	public void createMapArray(){
 		if(!initailizedMapArray && boardSizeKnown[0] && boardSizeKnown[1]){
 			map = new byte[boardSize][boardSize];
@@ -668,6 +665,7 @@ public class ars140330Agent extends Agent {
 		return false;
 	}
 	public int defend() {
+		int direction = -2;
 		if (defensePositionsFound && positionKnown[agentId]){
 			if (position.equals(topDefendingPosition) && defenseGoal.equals(topDefendingPosition)){
 				defenseGoal = bottomDefendingPosition;
@@ -675,54 +673,154 @@ public class ars140330Agent extends Agent {
 			else if (position.equals(bottomDefendingPosition) && defenseGoal.equals(bottomDefendingPosition)){
 				defenseGoal = topDefendingPosition;
 			}
-			if (!minesPlanted) {
-				if (defenseMinePositions == null) {
+		//	System.out.printf("defenseGoal is %s\n",defenseGoal);
+			//if on path to something, try to go there. If we can't, it means there is a teammate, so we should make any possible move or self destruct
+			if (onPath) {
+				if (defenseMinePositions == null)
 					calculateDefenseMinePositions();
+				if (defenseMinePositions != null) {
+					for(Position pos: defenseMinePositions){
+						//plant the mine, need a new path
+						if (position.equals(pos) && !mine[pos.row][pos.column]) {
+							mine[pos.row][pos.column] = true;
+							if (areMinesPlanted())
+								minesPlanted = true;
+							onPath = false;
+							return AgentAction.PLANT_HYPERDEADLY_PROXIMITY_MINE;
+						}
+					}
 				}
-				if (!minesPlanted && defenseMinePositions != null){
-					int direction = plantDefenseMine();
+				if(path.peekFirst() == null){
+					onPath = false;
+					path = findPath(position,defenseGoal);
+					if (path == null)
+						path = findPathToDefense(position,defenseGoal);
+					if (path != null) {
+						direction = getNextMoveFromPath(inEnvironment);
+						onPath = true;
+						return direction;
+					}
+				}
+				else if (notObstructed(path.peek(),inEnvironment)) {
+					direction = getNextMoveFromPath(inEnvironment);
 					if (direction != -2)
 						return direction;
 				}
-				path = findPathToClosestUndiscoveredPosition(position,defenseGoal);
-				if (path != null){
-					int direction = tryNextMoveFromPath(inEnvironment);
-					if (direction != -2 && teammateNotInWay(direction,inEnvironment))
-						return direction;
+				//make any possible move
+				else {
+					onPath = false;
+					Position neighbor = new Position(position);
+					for(int i = 0;i<4;i++){
+						neighbor = positionMaker(position,i);
+						if (neighbor != null && notObstructed(i,inEnvironment)){
+							positionChanger(position,i);
+							return i;
+						}
+					}
+					//no possible moves
+					selfDestruct = true;
+					return AgentAction.PLANT_HYPERDEADLY_PROXIMITY_MINE;
 				}
 			}
-			path = findPath(position,defenseGoal);
-			if (path == null) 
-				path = findPathToDefense(position,defenseGoal);
-			if (path != null) {
-				int direction = tryNextMoveFromPath(inEnvironment);
-				if (direction != -2 && teammateNotInWay(direction,inEnvironment))
-					return direction;
-			}
+			//we do not have a current path found
+			else {
+				if (!minesPlanted) {
+					System.out.println("Mines have not been plnated yet");
+					if (defenseMinePositions == null) {
+		//				System.out.println("attempting to calcualte mine positions");
+						calculateDefenseMinePositions();
+					}
+					if (defenseMinePositions != null){
+		//				System.out.println("We know where the mines should be and we need to plant them");
+						direction = plantDefenseMine();
+						if (direction != -2) {
+							onPath = true;
+		//					System.out.println("On our way to plant a mine");
+							return direction;
+						}
+					}
+					else {
+		//				System.out.println("Don't know where miens need to be planted yet");
+						path = findPath(position,defenseGoal);
+		//				System.out.println("Attempting to find path to the defense goal"); 
+						if (path == null) {
+		//					System.out.println("Could not find path to defense goal, try partial path");
+							path = findPathToDefense(position,defenseGoal);
+						}
+						if (path != null){
+							onPath = true;
+		//					System.out.println("found partial path to defense goal");
+							direction = tryNextMoveFromPath(inEnvironment);
+							if (direction != -2 && teammateNotInWay(direction,inEnvironment))
+								return direction;
+						}
+		//				System.out.printf("failed to find any path at position %s\n",position);
+					}	
+				}
+				else {
+		//			System.out.println("Mines have been planted, attempitng to find path to defense goal");
+					path = findPath(position,defenseGoal);
+					if (path == null) {
+						System.out.println("full path not found, try partial");
+						path = findPathToDefense(position,defenseGoal);
+					}
+					if (path != null) {
+						onPath = true;
+						//System.out.println("partila path found");
+						direction = tryNextMoveFromPath(inEnvironment);
+						if (direction != -2)
+							return direction;
+					}
+				}
+		onPath = false;
+		selfDestruct = true;
+		//System.out.printf("failed to find any path at position %s\n",position);
+		printMapArray();
+		return AgentAction.PLANT_HYPERDEADLY_PROXIMITY_MINE;
 		}
-		return -2;
+	}
+	return AgentAction.DO_NOTHING;
+	}
+
+	public boolean areMinesPlanted(){
+		for(int i = 0;i<3;i++) {
+			if (!mine[ourFlagPosition.row-1+i][ourFlagPosition.column+2] && map[ourFlagPosition.row-1+i][ourFlagPosition.column+2] == 1)
+				return false;
+		}
+		return true;
 	}
 	public int plantDefenseMine(){
 		for(Position pos: defenseMinePositions){
+			//plant the mine, need a new path
 			if (position.equals(pos) && !mine[pos.row][pos.column]) {
 				mine[pos.row][pos.column] = true;
+				if (areMinesPlanted())
+					minesPlanted = true;
+				onPath = false;
 				return AgentAction.PLANT_HYPERDEADLY_PROXIMITY_MINE;
 			}
+			//need to find path to that mine, if found set onPath to true
 			if (map[pos.row][pos.column] == 1 && !mine[pos.row][pos.column]) {
 				path = findPath(position,pos);
 				if (path == null)
-					path = findPathToClosestUndiscoveredPosition(position,enemyFlagPosition);
+					path = findPathToDefense(position,pos);
 				if (path != null) {
+					onPath = true;
 					int mve = tryNextMoveFromPath(inEnvironment); 
 					if (mve != -2)
 						return mve;
 				}
 				else{
+					//could not find path
 					selfDestruct = true;
+					onPath = false;
+					System.out.println("deb 2");
 					return AgentAction.PLANT_HYPERDEADLY_PROXIMITY_MINE;
 				}
 			}
 		}
+		//all mines have been planted
+		onPath = false;
 		minesPlanted = true;
 		return -2;
 	}
@@ -743,8 +841,6 @@ public class ars140330Agent extends Agent {
 					defenseMinePositions.add(bomb);
 				}
 			}
-			for (Position k: defenseMinePositions)
-				System.out.println(k);
 			return true;
 		}
 		return false;
@@ -782,39 +878,9 @@ public class ars140330Agent extends Agent {
 			}
 			return -2;
 		}
-	// implements Agent.getMove() interface
-	public int getMove(AgentEnvironment inEnvironment) {
-		this.inEnvironment = inEnvironment;		
-		int move;
-		if (mine != null &&  moves % 20 == 0){
-			mine[ourFlagPosition.row][ourFlagPosition.column+2] = false;
-			minesPlanted = false;
-		}
-		if (selfDestruct)
-		{
-			selfDestruct = false;
-			return AgentAction.DO_NOTHING;
-		}
-		moves++;
-		move = capture();
-		if  (move != -2)
-			return move;
-		findCorner(inEnvironment);
-		move = findBoardSize(inEnvironment);
-		if(move != -2)
-			return move;
-		checkIfTagged(inEnvironment);
-		learnAgentAndFlagPositions(inEnvironment);
-		addToBadPoistions(inEnvironment);
-		addToDiscoveredPositions();
-		createMapArray();
-		initialMapUpdate();
-		updateMapArray(inEnvironment);
-		makeEnemyPositionArray();
-		//attacker
-		if (agentId == 1){
-			if (!inEnvironment.hasFlag() && !inEnvironment.hasFlag(inEnvironment.OUR_TEAM) && positionKnown[agentId]){
-				move = -2;
+	public int getFlag(){
+				if (!inEnvironment.hasFlag() && !inEnvironment.hasFlag(inEnvironment.OUR_TEAM) && positionKnown[agentId]){
+				int move = -2;
 				if (inEnvironment.isFlagNorth(inEnvironment.ENEMY_TEAM,true))
 					move = AgentAction.MOVE_NORTH;
 				else if (inEnvironment.isFlagWest(inEnvironment.ENEMY_TEAM,true))
@@ -828,51 +894,191 @@ public class ars140330Agent extends Agent {
 					return move;
 				}
 			}
-			//we have just gotten the flag
-			if (positionKnown[agentId] && position.equals(enemyFlagPosition) && inEnvironment.hasFlag()) {
-				enemyFlagGoal = false;
-			}
-			//our goal is to reach the enemy flag
-			//find a path to the closest new position to the enemy flag
-			if (enemyFlagGoal){
-				path = findPathToClosestUndiscoveredPosition(position,enemyFlagPosition);
-				if (path != null && path.size() > 0) {
-					move = getNextMoveFromPath(inEnvironment);
-					return move;
-				}	
-			}
-			//our goal is to reach our flag
-			//find the path to our flag
-			else {
-				path = findPath(position,ourFlagPosition);
-				if (path != null && path.size() > 0) {
-					move = getNextMoveFromPath(inEnvironment);
-					return move;
+			return -2;
+
+	}
+
+	public boolean justGotEnemyFlag() {
+		if (positionKnown[agentId] && position.equals(enemyFlagPosition) && inEnvironment.hasFlag())
+			return true;
+		else
+			return false;
+
+	}
+	public boolean knownMineAdjacent(int direction){
+		Position potential = new Position(position);
+		positionChanger(potential,direction);
+		if (potential != null && mine[potential.row][potential.column])
+			return true;
+		return false;
+
+	}
+
+	public boolean enemyFlagAdjacent(int direction) {
+		if (inEnvironment.isFlagNorth(inEnvironment.ENEMY_TEAM,true) && direction == AgentAction.MOVE_NORTH)
+			return true;
+		else if (inEnvironment.isFlagSouth(inEnvironment.ENEMY_TEAM,true) && direction == AgentAction.MOVE_SOUTH)
+			return true;
+		else if (inEnvironment.isFlagWest(inEnvironment.ENEMY_TEAM,true) && direction == AgentAction.MOVE_WEST)
+			return true;
+		else if (inEnvironment.isFlagEast(inEnvironment.ENEMY_TEAM,true) && direction == AgentAction.MOVE_EAST)
+			return true;
+		return false;
+	}
+
+	public int offense(Position goal){
+		int move = -2;
+		System.out.println();
+		if (positionKnown[agentId]) {
+				//if you're on the path, see if we can get there without making new one
+				//otherwise, make a new path
+				if (!inEnvironment.hasFlag() && inEnvironment.hasFlag(inEnvironment.ENEMY_TEAM)){
+					for (int dir = 0;dir<4;dir++){
+						if (enemyAgentAdjacent(dir,inEnvironment) && enemyFlagAdjacent(dir)) {
+							positionChanger(position,dir);
+							return dir;
+						}
+					}
 				}
-				else{
-					path = findPathToClosestUndiscoveredPosition(position,ourFlagPosition);
-					move = tryNextMoveFromPath(inEnvironment);
-					if (move != -2)
-						return AgentAction.DO_NOTHING;
+				if (onPath) {
+					System.out.println("On path to goal");
+					if (path.peekFirst() == null) {
+						System.out.println("path is empty");
+						onPath = false;
+						path = findPath(position,goal);
+						System.out.println("see if we can find new path");
+						if (path == null) {
+							System.out.println("could not find new path, attempting to find partial path");
+							path = findPathToClosestUndiscoveredPosition(position,goal);
+							if (path != null) {
+								onPath = true;
+							}
+						}
+						if (path != null){
+							System.out.println("found new path");
+							return getNextMoveFromPath(inEnvironment);
+						}
+					}
+
+					if (notObstructed(path.peek(),inEnvironment) && !enemyAgentAdjacent(path.peek(),inEnvironment) && (mine == null || !knownMineAdjacent(path.peek()))) {
+						System.out.println("Not obstructed by enemy agent");
+						move = getNextMoveFromPath(inEnvironment);
+						return move;
+					}
+					else {
+						if (!notObstructed(path.peek(),inEnvironment))
+							System.out.println("obstacle or teammate");
+						if (enemyAgentAdjacent(path.peek(),inEnvironment))
+							System.out.println("enemy agent next t o me");
+						if (mine != null && knownMineAdjacent(path.peek()))
+							System.out.println("enemmy mine next to me");
+						System.out.println("move was obstructed by enemy, attempting to find new complet path");
+						path = findPath(position,goal);
+						if (path == null) {
+							System.out.println("could not find new path, attempting to find partial path");
+							onPath = false;
+							path = findPathToClosestUndiscoveredPosition(position,goal);
+							if (path != null) {
+								System.out.println("Partial path found");
+								move = getNextMoveFromPath(inEnvironment);
+								onPath = true;
+								return move;
+							}
+						}
+						else {
+							move = getNextMoveFromPath(inEnvironment);
+							onPath = true;
+							return move;
+						}
+					}
 				}
-			} 
+				else {
+					System.out.println("not on path, attempting to find full path");
+					path = findPath(position,goal);
+					if (path != null) {
+						System.out.println("full path found");
+						onPath = true;
+						move = getNextMoveFromPath(inEnvironment);
+						return move;
+					}
+					else {
+						System.out.println("could not find full path, attempting to find closest newest position");
+						onPath = false;
+						path = findPathToClosestUndiscoveredPosition(position,goal);
+						if (path != null) {
+							System.out.println("found partial path");
+							onPath = true;
+							move = getNextMoveFromPath(inEnvironment);
+							return move;
+						}
+					}
+				}
+				//at this point, something is wrong and we should restart
+		}
+		System.out.printf("could not find any path at position %s\n",position);
+		onPath = false;
+		if (!inEnvironment.hasFlag()) {
+			printMapArray();
+			selfDestruct = true;
+			return AgentAction.PLANT_HYPERDEADLY_PROXIMITY_MINE;
+		}
+		else
 			return AgentAction.DO_NOTHING;
-		}	
+	}
+	// implements Agent.getMove() interface
+	public int getMove(AgentEnvironment inEnvironment) {
+		this.inEnvironment = inEnvironment;		
+		int move;
+		if (mine != null &&  moves % 25 == 1){
+			mine[ourFlagPosition.row][ourFlagPosition.column+2] = false;
+			minesPlanted = false;
+		}
+		if (selfDestruct) {
+			System.out.println("test");
+			selfDestruct = false;
+			return AgentAction.DO_NOTHING;
+		}
+		move = capture();
+		if  (move != -2)
+			return move;
+		findCorner(inEnvironment);
+		move = findBoardSize(inEnvironment);
+		if(move != -2)
+			return move;
+		checkIfTagged(inEnvironment);
+		learnAgentAndFlagPositions(inEnvironment);
+		addToBadPoistions(inEnvironment);
+		createMapArray();
+		initialMapUpdate();
+		updateMapArray(inEnvironment);
+		makeEnemyPositionArray();
+		//attacker
+		if (agentId == 1){
+			if (positionKnown[1]) 
+			{
+				if (justGotEnemyFlag())
+					enemyFlagGoal = false;
+				moves++;
+				//see if we can get the flag
+				move = getFlag();
+				if (move != -2)
+					return move;
+				if (enemyFlagGoal)
+					move = offense(enemyFlagPosition);
+				else
+					move = offense(ourFlagPosition);
+				if (move != -2)
+					return move;
+			}
+			//in case postions of both agents not ready 
+			return AgentAction.DO_NOTHING;
+		}
+		//this is the defender's actions	
 		else {
 			move = attack();
 			if (move != -2)
 				return move;
-			if (!inEnvironment.hasFlag(inEnvironment.ENEMY_TEAM)) {
-				move = defend();
-				if (move != -2)
-					return move;
-			}
 			return defend();
-			//if (positionKnown[0] && positionKnown[1]){
-			//	printMapArray();
-		//		return move(inEnvironment);
-		//	}
-		//	return AgentAction.DO_NOTHING;
 		}
 	}
 }
