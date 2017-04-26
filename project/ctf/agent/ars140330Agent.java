@@ -1029,7 +1029,6 @@ public class ars140330Agent extends Agent {
 		int move;
 		Position goal = enemyFlagPosition;
 		if (moves > boardSize * 2){
-			System.out.println("We've stayed at flag too long");
 			return -2;
 		}
 		for (int i = 0;i<4;i++) {
@@ -1037,15 +1036,11 @@ public class ars140330Agent extends Agent {
 				return i;
 		}
 		if (position.equals(goal)) {
-			System.out.println("increming moves we've stayed at enemy flag");
 			moves++;
-			System.out.printf("Moves is %d\n,",moves);
 			if (!offenseMinePlanted && map[enemyFlagPosition.row][offenseMineColumn] == 1 && !mine[enemyFlagPosition.row][offenseMineColumn]){
-				System.out.println("Offense mines have not been planted yet");
 				plantMine = true;
 				offenseMinePlanted = true;
 				mine[enemyFlagPosition.row][offenseMineColumn] = true;
-				System.out.println("movingto plant");
 				if (inEnvironment.isBaseWest(inEnvironment.OUR_TEAM,false)){
 					positionChanger(position,AgentAction.MOVE_WEST);
 					return AgentAction.MOVE_WEST;
@@ -1055,12 +1050,10 @@ public class ars140330Agent extends Agent {
 					return AgentAction.MOVE_EAST;
 				}
 			}
-			System.out.println("we are at base and defending");
 			return AgentAction.DO_NOTHING;
 		}
 		else
 		{
-			System.out.println("we are not at base and need to move to it");
 			if (inEnvironment.isBaseWest(inEnvironment.ENEMY_TEAM,true)){
 				positionChanger(position,AgentAction.MOVE_WEST);
 				return AgentAction.MOVE_WEST;
@@ -1129,7 +1122,6 @@ public class ars140330Agent extends Agent {
 				}
 				everyThingOk = isEverythingOk();
 				if (everyThingOk) {
-					System.out.println("everything is ok");
 					if (justGotEnemyFlag())
 						enemyFlagGoal = false;
 					//see if we can get the flag
@@ -1144,17 +1136,13 @@ public class ars140330Agent extends Agent {
 						return move;
 				}
 				else {
-					System.out.println("everything is not ok");
 					move = stopEnemyAgent();
-					System.out.printf("move number we get from stop enemy %d\n",move);
 					if (move == -2){
-						System.out.println("Everything not ok but we are going to move on");
 						if (inEnvironment.hasFlag())
 							move = offense(ourFlagPosition);
 						else
 							move = offense(enemyFlagPosition);
 					}
-					System.out.printf("move number we get is %d\n",move);
 					return move;
 				}
 			}
