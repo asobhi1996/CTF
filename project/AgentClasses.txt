@@ -1,5 +1,6 @@
-4
+5
 ctf.agent.SimpleAgent
 ctf.agent.RandomAgent
 ctf.agent.BomberAgent
 ctf.agent.ars140330Agent
+ctf.agent.srs140430Agent
